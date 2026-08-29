@@ -1,0 +1,27 @@
+{
+  "name": "voiceagent-in-ram",
+  "version": "1.0.0",
+  "description": "Fractal Kernel In-RAM Call Center Voice Agent with PIET Falsification Suite",
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node tests/index.mjs"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "msedge-tts": "^2.0.7",
+    "ws": "^8.18.0"
+  },
+  "keywords": [
+    "voice-agent",
+    "fractal-kernel",
+    "in-ram-execution",
+    "piet",
+    "vsap",
+    "webrtc",
+    "call-center"
+  ],
+  "author": "Antigravity",
+  "license": "ISC"
+}

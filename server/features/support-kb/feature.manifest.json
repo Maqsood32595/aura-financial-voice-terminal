@@ -1,0 +1,15 @@
+{
+  "name": "support-kb",
+  "version": "1.0.0",
+  "description": "QSAG In-Memory Real-Time Policy & FAQ Engine (<5ms latency)",
+  "basePath": "/api/v1/kb",
+  "routesFile": "routes.js",
+  "serviceFile": "service.js",
+  "voiceTools": [
+    {
+      "name": "search_policy_kb",
+      "description": "Fast semantic policy search in RAM",
+      "handler": "searchKnowledgeBase"
+    }
+  ]
+}

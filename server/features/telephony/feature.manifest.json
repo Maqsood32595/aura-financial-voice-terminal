@@ -1,0 +1,15 @@
+{
+  "name": "telephony",
+  "version": "1.0.0",
+  "description": "Call Session Lifecycle & Caller Twin Profile Management",
+  "basePath": "/api/v1/telephony",
+  "routesFile": "routes.js",
+  "serviceFile": "service.js",
+  "voiceTools": [
+    {
+      "name": "verify_caller_identity",
+      "description": "Verify caller identity PIN in RAM",
+      "handler": "verifyCaller"
+    }
+  ]
+}

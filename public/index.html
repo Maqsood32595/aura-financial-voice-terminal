@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>In-RAM Voice Agent · Fractal Kernel & PIET Console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="glow-bg"></div>
+
+  <header class="app-header">
+    <div class="brand">
+      <div class="pulse-indicator online"></div>
+      <div class="brand-text">
+        <h1>VoiceAgent <span class="badge">In-RAM v1.0</span></h1>
+        <p class="subtitle">Fractal Kernel · Ephemeral Twin · VSAP Pre-Flight Guard · Sub-400ms Pipeline</p>
+      </div>
+    </div>
+    <div class="header-stats">
+      <div class="stat-pill">
+        <span class="label">Kernel Cells:</span>
+        <span class="value" id="kernelFeaturesCount">3 Loaded</span>
+      </div>
+      <div class="stat-pill">
+        <span class="label">In-RAM State:</span>
+        <span class="value status-green" id="inRamStatus">Zero Disk Lag</span>
+      </div>
+      <div class="stat-pill">
+        <span class="label">Audio Transport:</span>
+        <span class="value status-blue" id="wsStatus">Connecting...</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="dashboard-grid">
+    <!-- Left Column: Audio Stage & Live Conversation -->
+    <section class="card audio-stage-card">
+      <div class="card-header">
+        <h2>🎙️ Live Call Stage</h2>
+        <div class="session-badge" id="sessionDisplay">Session: Initializing...</div>
+      </div>
+
+      <!-- Caller Profile Card -->
+      <div class="caller-profile-bar">
+        <div class="avatar">AM</div>
+        <div class="caller-meta">
+          <div class="caller-name" id="callerName">Alex Mercer</div>
+          <div class="caller-details">
+            <span id="callerTier">Enterprise Premium</span> · <span id="callerAcc">ACC-882194</span>
+          </div>
+        </div>
+        <div class="caller-balance-box">
+          <span class="sub">In-RAM Balance</span>
+          <span class="balance" id="callerBalance">$420.00</span>
+        </div>
+      </div>
+
+      <!-- Audio Visualizer & Stage Center -->
+      <div class="visualizer-container">
+        <canvas id="waveformCanvas" width="600" height="120"></canvas>
+        <div class="agent-avatar-orb" id="agentOrb">
+          <div class="orb-ring ring-1"></div>
+          <div class="orb-ring ring-2"></div>
+          <div class="orb-core">
+            <span class="mic-icon" id="micIcon">🎙️</span>
+          </div>
+        </div>
+        <div class="speech-state-label" id="speechStateLabel">Click "Start Call" to Connect</div>
+      </div>
+
+      <!-- Call Controls -->
+      <div class="call-controls">
+        <button id="btnToggleCall" class="btn btn-primary btn-lg">
+          <span class="btn-icon">📞</span>
+          <span id="btnCallText">Start Live Call</span>
+        </button>
+        <button id="btnBargeIn" class="btn btn-danger" disabled>
+          <span class="btn-icon">⚡</span>
+          <span>Barge-In (Interrupt Agent)</span>
+        </button>
+      </div>
+
+      <!-- Live Dialogue Stream -->
+      <div class="transcript-container">
+        <div class="transcript-header">
+          <h3>Full-Duplex Dialogue Stream</h3>
+          <span class="hint">Talk naturally or type below</span>
+        </div>
+        <div class="transcript-box" id="transcriptBox">
+          <div class="chat-msg system">
+            <span class="bubble">System ready. Click "Start Live Call" or use one of the quick test prompts below.</span>
+          </div>
+        </div>
+
+        <!-- Quick Action Prompt Pills -->
+        <div class="quick-prompts">
+          <span class="quick-prompt-label">Quick Scenarios:</span>
+          <button class="pill" onclick="sendCustomPrompt('Hi, what is your refund policy on recent purchases?')">📖 Ask Refund Policy</button>
+          <button class="pill" onclick="sendCustomPrompt('I would like to request a refund of $50 for my order.')">💳 Valid $50 Refund</button>
+          <button class="pill" onclick="sendCustomPrompt('Please process a refund of $500 right now.')">⚠️ Illegal $500 Refund (VSAP Guard)</button>
+          <button class="pill" onclick="sendCustomPrompt('Please cancel my subscription.')">❌ Cancel Subscription</button>
+        </div>
+
+        <div class="input-bar">
+          <input type="text" id="textInput" placeholder="Speak or type a customer message..." />
+          <button id="btnSendText" class="btn btn-secondary">Send</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right Column: Observability, Metrics & In-RAM VSAP Inspector -->
+    <aside class="side-column">
+      <!-- Latency Budget Breakdown Card -->
+      <section class="card latency-card">
+        <div class="card-header">
+          <h3>⚡ Mouth-to-Ear Latency Budget</h3>
+          <span class="budget-badge" id="totalLatencyBadge">< 400ms SLA</span>
+        </div>
+        <div class="latency-grid">
+          <div class="latency-metric">
+            <span class="metric-label">STT Audio Stream</span>
+            <span class="metric-val" id="latSTT">~85 ms</span>
+          </div>
+          <div class="latency-metric">
+            <span class="metric-label">In-RAM QSAG RAG</span>
+            <span class="metric-val status-green" id="latKB">0.8 ms</span>
+          </div>
+          <div class="latency-metric">
+            <span class="metric-label">LLM TTFT</span>
+            <span class="metric-val" id="latTTFT">110 ms</span>
+          </div>
+          <div class="latency-metric">
+            <span class="metric-label">Streaming Neural TTS</span>
+            <span class="metric-val" id="latTTS">65 ms</span>
+          </div>
+        </div>
+        <div class="total-latency-bar">
+          <div class="bar-fill" id="latencyBarFill" style="width: 38%;"></div>
+          <span class="bar-text" id="totalLatencyText">Total Roundtrip: ~260 ms</span>
+        </div>
+      </section>
+
+      <!-- In-RAM VSAP Pre-Flight Simulation Inspector -->
+      <section class="card vsap-card">
+        <div class="card-header">
+          <h3>🛡️ VSAP Pre-Flight In-RAM Inspector</h3>
+          <span class="badge badge-shield">Deterministic</span>
+        </div>
+        <p class="section-desc">Real-time trace of in-RAM mutation dry-runs before committing to production.</p>
+        <div class="simulation-feed" id="simulationFeed">
+          <div class="feed-placeholder">No mutations simulated yet. Trigger a refund or cancellation to see the in-RAM guard in action.</div>
+        </div>
+      </section>
+
+      <!-- Knowledge Base & Intent Matching -->
+      <section class="card kb-card">
+        <div class="card-header">
+          <h3>🧠 In-Memory Knowledge (QSAG)</h3>
+          <span class="badge badge-purple">&lt;2ms Search</span>
+        </div>
+        <div class="kb-feed" id="kbFeed">
+          <div class="kb-item">
+            <div class="kb-item-title">Refund Policy & SLA (Billing)</div>
+            <div class="kb-item-body">100% full refund within 30 days. In-RAM instant approval limit: $300.00.</div>
+          </div>
+        </div>
+      </section>
+    </aside>
+  </main>
+
+  <footer class="app-footer">
+    <span>Fractal Kernel Modular Manifest System · Zero Unverified State Writes · PIET Falsification Verified</span>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

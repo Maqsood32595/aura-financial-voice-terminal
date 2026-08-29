@@ -1,0 +1,22 @@
+{
+  "name": "billing",
+  "version": "1.0.0",
+  "description": "In-RAM Billing, Refund & Subscription Mutation Engine with VSAP Safety Guard",
+  "basePath": "/api/v1/billing",
+  "routesFile": "routes.js",
+  "serviceFile": "service.js",
+  "voiceTools": [
+    {
+      "name": "process_refund",
+      "description": "Process an atomic customer refund with in-RAM safety checks",
+      "handler": "processRefund",
+      "validator": "validateRefund"
+    },
+    {
+      "name": "cancel_subscription",
+      "description": "Schedule cancellation of customer subscription",
+      "handler": "cancelSubscription",
+      "validator": "validateCancellation"
+    }
+  ]
+}
