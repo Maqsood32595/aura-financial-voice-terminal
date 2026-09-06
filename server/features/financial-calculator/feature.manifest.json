@@ -1,0 +1,26 @@
+{
+  "name": "financial-calculator",
+  "version": "1.0.0",
+  "description": "In-RAM Sub-0.01ms Financial Ratios, Margin Comparisons, and Free Cash Flow Math",
+  "baseRoute": "/api/v1/calculator",
+  "voiceTools": [
+    {
+      "name": "compare_companies",
+      "description": "Performs instant in-RAM financial comparison of revenue, margins, R&D, and cash flow between 2 public companies",
+      "parameters": {
+        "companyA": "string",
+        "companyB": "string",
+        "metric": "string",
+        "fiscalYear": "number"
+      }
+    },
+    {
+      "name": "calculate_ratios",
+      "description": "Computes Free Cash Flow, YoY growth rate, and R&D percentage of revenue for a company",
+      "parameters": {
+        "ticker": "string",
+        "fiscalYear": "number"
+      }
+    }
+  ]
+}

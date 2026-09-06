@@ -1,0 +1,16 @@
+{
+  "name": "mega-cap-tech",
+  "version": "1.0.0",
+  "description": "In-RAM SEC 10-K Filings for Mega-Cap Tech (AAPL, MSFT, GOOGL, AMZN, META)",
+  "baseRoute": "/api/v1/mega-cap-tech",
+  "voiceTools": [
+    {
+      "name": "get_tech_financials",
+      "description": "Fetches verified SEC 10-K metrics for Apple, Microsoft, Alphabet, Amazon, or Meta",
+      "parameters": {
+        "ticker": "string",
+        "fiscalYear": "number"
+      }
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Environment Secrets
+.env
+.env.local
+
+# Logs and runtime artifacts
+*.log
+npm-debug.log*
+financial_notepad.txt
+
+# OS metadata
+.DS_Store
+Thumbs.db

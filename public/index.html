@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aura · SEC EDGAR 10-K Financial Voice Agent</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="theme-dark">
+  <div class="app-container">
+    
+    <!-- Top Header -->
+    <header class="app-header">
+      <div class="header-left">
+        <div class="logo-badge">
+          <div class="logo-icon">📊</div>
+          <div class="logo-text">
+            <span class="brand-title">AURA <span class="accent-text">EQUITY</span></span>
+            <span class="brand-subtitle">SEC EDGAR 10-K IN-RAM VOICE ANALYST</span>
+          </div>
+        </div>
+        <div class="status-pill" id="wsStatus">
+          <span class="status-dot"></span>
+          <span class="status-label">INITIALIZING</span>
+        </div>
+      </div>
+
+      <div class="header-center">
+        <div class="engine-switch-box">
+          <span class="engine-switch-label">ENGINE:</span>
+          <button class="btn-engine-toggle" id="btnModeLocal" title="Local WebAssembly RAM + Ultra-Low Latency Dialectic Brain">
+            ⚡ In-RAM Dialectic
+          </button>
+          <button class="btn-engine-toggle active" id="btnModeAssembly" title="AssemblyAI Voice Agent API 24kHz Neural Cloud Stream">
+            🎙️ AssemblyAI Cloud Voice
+          </button>
+        </div>
+      </div>
+
+      <div class="header-right">
+        <button class="btn-notepad" id="btnOpenNotepad" title="View Inquired Metrics">
+          📝 <span>Financial Audit</span>
+        </button>
+        <div class="engine-badge" id="activeEngineBadge">
+          ⚡ ASSEMBLYAI UNIVERSAL-3.5 + IN-RAM PGLITE
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="main-content">
+      
+      <!-- Left Column: Voice Agent Terminal -->
+      <section class="left-panel">
+        
+        <!-- Agent Voice Visualizer Card -->
+        <div class="voice-card glass-panel">
+          <div class="voice-header">
+            <div class="agent-profile">
+              <div class="avatar-ring" id="agentAvatar">
+                <div class="avatar-core">📈</div>
+              </div>
+              <div class="agent-info">
+                <h3>Aura</h3>
+                <p>Senior Equity Research Analyst</p>
+              </div>
+            </div>
+            <div class="voice-lock-status">
+              <span class="voice-lock-badge active" id="voiceLockBadge">🔒 SPEAKER-LOCKED</span>
+            </div>
+          </div>
+
+          <!-- Live Audio Canvas Visualizer -->
+          <div class="visualizer-container">
+            <canvas id="audioVisualizerCanvas" width="500" height="100"></canvas>
+            <div class="audio-state-tag" id="speechStateLabel">READY · TAP CONNECT TO SPEAK</div>
+          </div>
+
+          <!-- Push To Talk (Hold Spacebar) Control -->
+          <div class="ptt-container">
+            <button class="btn-ptt" id="btnPushToTalk">
+              <span class="ptt-icon">🎙️</span>
+              <span class="ptt-label" id="pttLabel">HOLD SPACEBAR TO SPEAK</span>
+              <span class="ptt-badge">[SPACE]</span>
+            </button>
+          </div>
+
+          <!-- Hands-Free Call Action Controls -->
+          <div class="call-controls">
+            <button class="btn-call-toggle" id="btnToggleCall">
+              <span class="call-icon">📞</span>
+              <span class="call-text" id="btnCallText">Enable Hands-Free Mic</span>
+            </button>
+            <button class="btn-barge-in" id="btnBargeIn" title="Instant Interrupt (<20ms)">
+              ⚡ <span>Barge-In</span>
+            </button>
+          </div>
+
+          <!-- Noise Gate & Proximity Sliders -->
+          <div class="audio-controls-row">
+            <div class="control-group">
+              <label>Mic Sensitivity (VAD): <span id="noiseGateVal">0.038</span></label>
+              <input type="range" id="noiseGateSlider" min="0.010" max="0.100" step="0.002" value="0.038">
+            </div>
+            <div class="proximity-indicator">
+              <span>Proximity Match:</span>
+              <span class="prox-val" id="lockMatchVal">100%</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Live Dialogue & SEC Transcript Box -->
+        <div class="transcript-card glass-panel">
+          <div class="card-header">
+            <h4>Live Financial Dialogue</h4>
+            <span class="latency-tag" id="turnLatencyTag">Latency: 0ms</span>
+          </div>
+          <div class="transcript-stream" id="transcriptBox">
+            <div class="bubble agent-bubble">
+              <div class="bubble-speaker">Aura (Senior Analyst)</div>
+              <div class="bubble-text">Welcome to the SEC EDGAR Financial Terminal. Ask me about any company's 10-K filings, gross margins, free cash flow, or compare multi-year ratios in real-time.</div>
+            </div>
+          </div>
+          <div class="text-input-bar">
+            <input type="text" id="textInput" placeholder="Ask e.g. 'Compare Nvidia vs Apple 2023 gross margin' or speak...">
+            <button id="btnSendText">Send</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right Column: SEC 10-K Filings & Financial Matrix -->
+      <section class="right-panel">
+        
+        <!-- Quick Financial Comparison Prompts -->
+        <div class="scenarios-card glass-panel">
+          <div class="card-header">
+            <h4>⚡ Instant Verification Scenarios</h4>
+            <span class="count-tag">10-K XBRL</span>
+          </div>
+          <div class="scenarios-grid" id="scenariosGrid">
+            <button class="scenario-btn" data-query="Compare Nvidia's Gross Margin in 2023 vs Apple's 2023 Gross Margin">
+              <span class="s-tag">SEMIS VS HARDWARE</span>
+              <span class="s-text">NVDA vs AAPL FY2023 Gross Margin</span>
+            </button>
+            <button class="scenario-btn" data-query="What was Tesla's Energy Storage revenue in 2023 and 2024?">
+              <span class="s-tag">SEGMENT GROWTH</span>
+              <span class="s-text">Tesla Megapack & Energy Revenue</span>
+            </button>
+            <button class="scenario-btn" data-query="How much did Microsoft generate in Free Cash Flow in FY2024?">
+              <span class="s-tag">CASH FLOW</span>
+              <span class="s-text">Microsoft FY2024 Free Cash Flow</span>
+            </button>
+            <button class="scenario-btn" data-query="What was Meta's operating margin in their Year of Efficiency?">
+              <span class="s-tag">PROFITABILITY</span>
+              <span class="s-text">Meta FY2023 Year of Efficiency</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Master SEC 10-K Financial Matrix Table -->
+        <div class="inventory-card glass-panel">
+          <div class="card-header">
+            <h4>🏢 S&P 500 & NASDAQ SEC 10-K Master Matrix</h4>
+            <span class="badge-count" id="filingsCount">12 Filings Loaded</span>
+          </div>
+          <div class="table-responsive">
+            <table class="inventory-table">
+              <thead>
+                <tr>
+                  <th>Ticker</th>
+                  <th>Company</th>
+                  <th>FY</th>
+                  <th>Revenue</th>
+                  <th>Gross Margin</th>
+                  <th>Net Income</th>
+                  <th>Free Cash Flow</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="inventoryTbody">
+                <!-- Populated dynamically via In-RAM database -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Telemetry Log -->
+        <div class="telemetry-card glass-panel">
+          <div class="card-header">
+            <h4>⚡ In-RAM WebAssembly PostgreSQL Query Stream</h4>
+            <span class="sql-latency" id="sqlLatencyTag">&lt;0.1ms</span>
+          </div>
+          <div class="sql-terminal" id="sqlLogOutput">
+            [In-RAM PGlite Engine ready - 0 disk I/O]
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Financial Notepad Modal -->
+    <div class="modal-backdrop hidden" id="notepadModal">
+      <div class="modal-card glass-panel">
+        <div class="modal-header">
+          <h3>📝 Financial Audit Trail & Notepad</h3>
+          <button class="btn-close-modal" id="btnCloseNotepad">✕</button>
+        </div>
+        <div class="modal-body">
+          <textarea id="notepadContent" readonly spellcheck="false"></textarea>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-clear-notepad" id="btnClearNotepad">Clear Audit Trail</button>
+          <button class="btn-refresh-notepad" id="btnRefreshNotepad">Refresh</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

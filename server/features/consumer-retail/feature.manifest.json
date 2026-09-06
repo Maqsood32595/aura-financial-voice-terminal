@@ -1,0 +1,16 @@
+{
+  "name": "consumer-retail",
+  "version": "1.0.0",
+  "description": "In-RAM SEC 10-K Filings for Global Consumer Retail & Streaming (WMT, NFLX)",
+  "baseRoute": "/api/v1/consumer-retail",
+  "voiceTools": [
+    {
+      "name": "get_retail_streaming_financials",
+      "description": "Fetches verified SEC 10-K metrics for Walmart or Netflix",
+      "parameters": {
+        "ticker": "string",
+        "fiscalYear": "number"
+      }
+    }
+  ]
+}

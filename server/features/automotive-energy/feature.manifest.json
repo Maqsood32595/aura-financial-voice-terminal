@@ -1,0 +1,16 @@
+{
+  "name": "automotive-energy",
+  "version": "1.0.0",
+  "description": "In-RAM SEC 10-K Filings for Clean Energy, Automotive & Industrial Leaders (TSLA, XOM)",
+  "baseRoute": "/api/v1/automotive-energy",
+  "voiceTools": [
+    {
+      "name": "get_energy_auto_financials",
+      "description": "Fetches verified SEC 10-K metrics for Tesla or ExxonMobil",
+      "parameters": {
+        "ticker": "string",
+        "fiscalYear": "number"
+      }
+    }
+  ]
+}

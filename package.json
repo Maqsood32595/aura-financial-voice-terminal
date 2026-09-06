@@ -1,0 +1,17 @@
+{
+  "name": "sec-edgar-voice-agent",
+  "version": "1.0.0",
+  "description": "In-RAM SEC EDGAR 10-K Financial Voice Agent with Fractal Manifest Architecture",
+  "main": "server/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node tests/index.mjs"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.2.14",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "ws": "^8.17.0"
+  }
+}

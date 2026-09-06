@@ -1,0 +1,16 @@
+{
+  "name": "semiconductors",
+  "version": "1.0.0",
+  "description": "In-RAM SEC 10-K Filings for Semiconductor Leaders (NVDA, AMD, INTC)",
+  "baseRoute": "/api/v1/semiconductors",
+  "voiceTools": [
+    {
+      "name": "get_semiconductor_financials",
+      "description": "Fetches verified SEC 10-K metrics for NVDA, AMD, or semiconductor companies",
+      "parameters": {
+        "ticker": "string",
+        "fiscalYear": "number"
+      }
+    }
+  ]
+}

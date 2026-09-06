@@ -1,0 +1,16 @@
+{
+  "name": "finance-payments",
+  "version": "1.0.0",
+  "description": "In-RAM SEC 10-K Filings for Financial Conglomerates & Payment Networks (JPM, V, BRK)",
+  "baseRoute": "/api/v1/finance-payments",
+  "voiceTools": [
+    {
+      "name": "get_banking_payments_financials",
+      "description": "Fetches verified SEC 10-K metrics for JPMorgan, Visa, or Berkshire Hathaway",
+      "parameters": {
+        "ticker": "string",
+        "fiscalYear": "number"
+      }
+    }
+  ]
+}

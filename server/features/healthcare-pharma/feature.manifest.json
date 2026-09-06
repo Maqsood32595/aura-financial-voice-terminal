@@ -1,0 +1,16 @@
+{
+  "name": "healthcare-pharma",
+  "version": "1.0.0",
+  "description": "In-RAM SEC 10-K Filings for Healthcare & Pharmaceutical Leaders (LLY)",
+  "baseRoute": "/api/v1/healthcare-pharma",
+  "voiceTools": [
+    {
+      "name": "get_pharma_financials",
+      "description": "Fetches verified SEC 10-K metrics for Eli Lilly or healthcare giants",
+      "parameters": {
+        "ticker": "string",
+        "fiscalYear": "number"
+      }
+    }
+  ]
+}
