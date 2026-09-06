@@ -81,7 +81,7 @@ npm test
 
 Verifies:
 1. 6-gate falsification and negative lookups
-2. Relational schema consistency across 585 SEC 10-K filings
+2. Relational schema consistency across 200+ S&P 500 SEC 10-K filings
 3. Multi-turn deep memory retention
 4. Ephemeral session teardown invariants
 
