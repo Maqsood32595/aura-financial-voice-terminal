@@ -90,7 +90,13 @@ app.get('/api/v1/assemblyai-token', async (req, res) => {
     }
 
     const data = await tokenRes.json();
-    res.json({ success: true, token: data.token, agentId });
+    res.json({
+      success: true,
+      token: data.token,
+      agentId,
+      keyPrefix: apiKey.slice(0, 4) + '...' + apiKey.slice(-4),
+      deployVer: 'v1.1-aura'
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
