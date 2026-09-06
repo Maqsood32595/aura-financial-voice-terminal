@@ -1,5 +1,6 @@
 import express from 'express';
 import http from 'http';
+import https from 'https';
 import { WebSocketServer, WebSocket } from 'ws';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -58,6 +59,55 @@ app.get(['/api/v1/sql-logs', '/api/v1/telemetry/sql-logs'], (req, res) => {
 
 app.get('/favicon.ico', (req, res) => res.status(204).end());
 
+// AssemblyAI Voice Agent Token Minting (Pinned to primary eu-west-1 cluster for valid KMS token decryption)
+function mintAssemblyAiTokenDirect(apiKey, agentId) {
+  return new Promise((resolve, reject) => {
+    const postData = JSON.stringify({ agent_id: agentId });
+    const primaryIps = ['34.242.17.123', '34.246.213.66', '108.131.190.141'];
+    const targetIp = primaryIps[Math.floor(Math.random() * primaryIps.length)];
+
+    const options = {
+      hostname: 'agents.assemblyai.com',
+      port: 443,
+      path: '/v1/tokens',
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(postData)
+      },
+      lookup: (h, o, cb) => {
+        if (typeof o === 'function') { cb = o; o = {}; }
+        if (o && o.all) return cb(null, [{ address: targetIp, family: 4 }]);
+        return cb(null, targetIp, 4);
+      },
+      timeout: 7000
+    };
+
+    const req = https.request(options, (res) => {
+      let body = '';
+      res.on('data', chunk => body += chunk);
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(body);
+          if (res.statusCode >= 200 && res.statusCode < 300 && json.token) {
+            resolve(json);
+          } else {
+            reject(new Error(json.error || `HTTP ${res.statusCode}: ${body}`));
+          }
+        } catch (e) {
+          reject(new Error(`Invalid JSON (${res.statusCode}): ${body}`));
+        }
+      });
+    });
+
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('KMS token minting request timed out')); });
+    req.write(postData);
+    req.end();
+  });
+}
+
 // AssemblyAI Voice Agent Token Minting Endpoint
 app.get('/api/v1/assemblyai-token', async (req, res) => {
   try {
@@ -75,27 +125,34 @@ app.get('/api/v1/assemblyai-token', async (req, res) => {
       apiKey = AURA_DEFAULT_KEY;
     }
 
-    const tokenRes = await fetch('https://agents.assemblyai.com/v1/tokens', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ agent_id: agentId })
-    });
-
-    if (!tokenRes.ok) {
-      const errText = await tokenRes.text();
-      return res.status(tokenRes.status).json({ error: errText });
+    let data;
+    try {
+      // Primary: Route to Ireland cluster to ensure token is encrypted with Ireland KMS key for WebSocket gateway
+      data = await mintAssemblyAiTokenDirect(apiKey, agentId);
+    } catch (directErr) {
+      console.warn('⚠️ Ireland direct KMS minting notice, falling back to standard DNS fetch:', directErr.message);
+      const tokenRes = await fetch('https://agents.assemblyai.com/v1/tokens', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ agent_id: agentId })
+      });
+      if (!tokenRes.ok) {
+        const errText = await tokenRes.text();
+        return res.status(tokenRes.status).json({ error: errText });
+      }
+      data = await tokenRes.json();
     }
 
-    const data = await tokenRes.json();
     res.json({
       success: true,
       token: data.token,
       agentId,
       keyPrefix: apiKey.slice(0, 4) + '...' + apiKey.slice(-4),
-      deployVer: 'v1.1-aura'
+      cluster: data.token && data.token.startsWith('AQICAHimLT7O') ? 'eu-west-1 (Ireland Gateway Compatible)' : 'Standard',
+      deployVer: 'v1.2-kms-aligned'
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
