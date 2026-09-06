@@ -27,12 +27,15 @@ const PORT = process.env.PORT || 5035;
 app.use(express.json());
 app.use(express.static(path.resolve(__dirname, '../public')));
 
-// 1. Initialize In-RAM PGlite PostgreSQL Database
-await shadowFinancialDb.init();
+// 1. Start Server Immediately to pass Render/Host port detection
+server.listen(PORT, async () => {
+  console.log(`\n🏛️ [SEC EDGAR 10-K Financial Voice Agent (Voice-Locked)] Running at http://localhost:${PORT}`);
+  console.log(`⚡ [In-RAM Architecture] 200 S&P 500 Companies & In-RAM SQL Engine active on port ${PORT}\n`);
 
-// 2. Initialize Fractal Manifest Kernel
-const kernel = new FractalKernel(app);
-await kernel.bootstrap();
+  await shadowFinancialDb.init();
+  const kernel = new FractalKernel(app);
+  await kernel.bootstrap();
+});
 
 // REST API Endpoints
 app.get('/api/v1/filings', async (req, res) => {
@@ -241,9 +244,4 @@ wss.on('connection', (ws) => {
     sessionEngine.teardownSession(sessionId);
     voiceBiometrics.wipeProfile(sessionId);
   });
-});
-
-server.listen(PORT, () => {
-  console.log(`\n🏛️ [SEC EDGAR 10-K Financial Voice Agent (Voice-Locked)] Running at http://localhost:${PORT}`);
-  console.log(`⚡ [In-RAM Architecture] 15 Public Companies & PGlite Database active on port ${PORT}\n`);
 });
