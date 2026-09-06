@@ -53,24 +53,32 @@ export class ShadowFinancialDb {
       );
     `);
 
-    // 3. Seed Master SEC Filings in RAM
+    // 3. Seed Master SEC Filings in RAM (Batched 50-row chunks for minimal memory footprint)
     const dataPath = path.resolve(__dirname, '../data/sec_financials_master.json');
     const filings = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
 
-    for (const f of filings) {
+    for (let i = 0; i < filings.length; i += 50) {
+      const chunk = filings.slice(i, i + 50);
+      const values = [];
+      const params = [];
+      let idx = 1;
+      for (const f of chunk) {
+        values.push(`($${idx}, $${idx+1}, $${idx+2}, $${idx+3}, $${idx+4}, $${idx+5}, $${idx+6}, $${idx+7}, $${idx+8}, $${idx+9}, $${idx+10}, $${idx+11}, $${idx+12}, $${idx+13}, $${idx+14})`);
+        params.push(
+          f.id, f.ticker, f.companyName, f.sector, f.cik, f.fiscalYear,
+          f.revenue, f.grossProfit, f.grossMarginPercent, f.operatingIncome,
+          f.operatingMarginPercent, f.netIncome, f.rdExpense, f.freeCashFlow,
+          f.keyHighlights
+        );
+        idx += 15;
+      }
       await this.pg.query(
         `INSERT INTO sec_filings (
           id, ticker, company_name, sector, cik, fiscal_year, revenue,
           gross_profit, gross_margin_pct, operating_income, operating_margin_pct,
           net_income, rd_expense, free_cash_flow, key_highlights
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-        ON CONFLICT (id) DO NOTHING;`,
-        [
-          f.id, f.ticker, f.companyName, f.sector, f.cik, f.fiscalYear,
-          f.revenue, f.grossProfit, f.grossMarginPercent, f.operatingIncome,
-          f.operatingMarginPercent, f.netIncome, f.rdExpense, f.freeCashFlow,
-          f.keyHighlights
-        ]
+        ) VALUES ${values.join(', ')} ON CONFLICT (id) DO NOTHING;`,
+        params
       );
     }
 
