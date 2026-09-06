@@ -108,9 +108,50 @@ function mintAssemblyAiTokenDirect(apiKey, agentId) {
   });
 }
 
+// Rate Limiter for AssemblyAI Token Minting to prevent runaway billing & abuse
+const tokenRateLimitStore = new Map();
+const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
+const MAX_TOKENS_PER_WINDOW = 8; // Max 8 voice sessions per 10 minutes per IP
+const MIN_COOLDOWN_MS = 6 * 1000; // 6 seconds between consecutive mint requests
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, rec] of tokenRateLimitStore.entries()) {
+    if (now > rec.resetTime) tokenRateLimitStore.delete(ip);
+  }
+}, 15 * 60 * 1000);
+
 // AssemblyAI Voice Agent Token Minting Endpoint
 app.get('/api/v1/assemblyai-token', async (req, res) => {
   try {
+    const clientIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress || 'unknown';
+    const now = Date.now();
+    let record = tokenRateLimitStore.get(clientIp);
+
+    if (!record || now > record.resetTime) {
+      record = { count: 0, resetTime: now + RATE_LIMIT_WINDOW_MS, lastRequest: 0 };
+    }
+
+    if (now - record.lastRequest < MIN_COOLDOWN_MS) {
+      const waitSec = Math.ceil((MIN_COOLDOWN_MS - (now - record.lastRequest)) / 1000);
+      return res.status(429).json({
+        success: false,
+        error: `Please wait ${waitSec}s before reconnecting voice.`
+      });
+    }
+
+    if (record.count >= MAX_TOKENS_PER_WINDOW) {
+      const resetMin = Math.ceil((record.resetTime - now) / 60000);
+      return res.status(429).json({
+        success: false,
+        error: `Voice session limit reached (${MAX_TOKENS_PER_WINDOW} sessions / 10 min). Please try again in ${resetMin}m.`
+      });
+    }
+
+    record.count++;
+    record.lastRequest = now;
+    tokenRateLimitStore.set(clientIp, record);
+
     const AURA_DEFAULT_KEY = 'a462cdf21a0f44fd92d7fe896afab05c';
     const AURA_DEFAULT_AGENT = 'd2ea7533-b74b-4aef-98b5-d365c5558bcb';
 

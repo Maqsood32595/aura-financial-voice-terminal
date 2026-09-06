@@ -80,6 +80,22 @@ const btnRefreshNotepad = document.getElementById('btnRefreshNotepad');
 const canvas = document.getElementById('audioVisualizerCanvas');
 const canvasCtx = canvas.getContext('2d');
 
+// Voice Session Limits & Safety Controls (Prevents Runaway Usage / Billing)
+const MAX_SESSION_TURNS = 15;
+const MAX_SESSION_DURATION_SEC = 240; // 4 minutes
+const IDLE_INACTIVITY_TIMEOUT_SEC = 75; // 75s of silence auto-pauses
+
+let sessionTurnCount = 0;
+let sessionSecondsRemaining = MAX_SESSION_DURATION_SEC;
+let sessionTimerInterval = null;
+let idleInactivityTimer = null;
+let isUserExplicitlyDisconnected = false;
+
+const btnVoiceToggle = document.getElementById('btnVoiceToggle');
+const btnVoiceToggleText = document.getElementById('btnVoiceToggleText');
+const sessionTimerDisplay = document.getElementById('sessionTimerDisplay');
+const sessionTurnsDisplay = document.getElementById('sessionTurnsDisplay');
+
 // 1. Dual-Engine Switcher & WebSocket Management
 function setEngineMode(mode) {
   currentEngineMode = mode;
@@ -182,11 +198,119 @@ function flushPcmAudioQueue() {
   isSpeaking = false;
 }
 
-// 3. Connect to AssemblyAI Voice Agent API WebSocket
+// 3. Connect to AssemblyAI Voice Agent API WebSocket with Quota & Inactivity Protection
 let isAaiConnecting = false;
+
+function updateSessionLimitsUI() {
+  if (sessionTurnsDisplay) {
+    sessionTurnsDisplay.textContent = `${sessionTurnCount}/${MAX_SESSION_TURNS} Turns`;
+  }
+  if (sessionTimerDisplay) {
+    const mins = Math.floor(sessionSecondsRemaining / 60);
+    const secs = sessionSecondsRemaining % 60;
+    sessionTimerDisplay.textContent = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  }
+}
+
+function resetIdleInactivityTimer() {
+  if (idleInactivityTimer) clearTimeout(idleInactivityTimer);
+  if (isUserExplicitlyDisconnected) return;
+
+  idleInactivityTimer = setTimeout(() => {
+    if (aaiWs && aaiWs.readyState === WebSocket.OPEN) {
+      console.log('⏱️ Idle inactivity timeout reached (75s silence). Disconnecting to conserve API quota.');
+      disconnectVoiceSession('Session paused due to 75s inactivity');
+      if (speechStateLabel) {
+        speechStateLabel.textContent = '⏸️ PAUSED (75s INACTIVITY) · CLICK "CONNECT VOICE" TO RESUME';
+      }
+    }
+  }, IDLE_INACTIVITY_TIMEOUT_SEC * 1000);
+}
+
+function startSessionCountdown() {
+  if (sessionTimerInterval) clearInterval(sessionTimerInterval);
+  sessionTimerInterval = setInterval(() => {
+    if (sessionSecondsRemaining > 0 && aaiWs && aaiWs.readyState === WebSocket.OPEN) {
+      sessionSecondsRemaining--;
+      updateSessionLimitsUI();
+      if (sessionSecondsRemaining <= 0) {
+        console.log('⏱️ Session duration limit reached (4 minutes). Disconnecting.');
+        disconnectVoiceSession('Max session time reached (4 min cap)');
+        if (speechStateLabel) {
+          speechStateLabel.textContent = '⏹️ 4-MIN SESSION CAP REACHED · CLICK CONNECT TO START FRESH';
+        }
+      }
+    }
+  }, 1000);
+}
+
+function stopSessionCountdown() {
+  if (sessionTimerInterval) clearInterval(sessionTimerInterval);
+  sessionTimerInterval = null;
+  if (idleInactivityTimer) clearTimeout(idleInactivityTimer);
+  idleInactivityTimer = null;
+}
+
+function registerVoiceTurn() {
+  sessionTurnCount++;
+  updateSessionLimitsUI();
+  resetIdleInactivityTimer();
+
+  if (sessionTurnCount >= MAX_SESSION_TURNS) {
+    console.log(`🛑 Max voice turns reached (${MAX_SESSION_TURNS}/${MAX_SESSION_TURNS}). Disconnecting session.`);
+    disconnectVoiceSession(`Session turn limit reached (${MAX_SESSION_TURNS} turns)`);
+    if (speechStateLabel) {
+      speechStateLabel.textContent = `🛑 TURN LIMIT REACHED (${MAX_SESSION_TURNS}/${MAX_SESSION_TURNS}) · CLICK CONNECT FOR NEW SESSION`;
+    }
+  }
+}
+
+function disconnectVoiceSession(reason = 'User Disconnected') {
+  isUserExplicitlyDisconnected = true;
+  stopSessionCountdown();
+  flushPcmAudioQueue();
+
+  if (isCallActive) {
+    isCallActive = false;
+    if (btnToggleCall) btnToggleCall.classList.remove('active');
+    if (btnCallText) btnCallText.textContent = 'Enable Hands-Free Mic';
+  }
+
+  if (aaiWs) {
+    try {
+      aaiWs.close(1000, reason);
+    } catch {}
+    aaiWs = null;
+  }
+
+  if (btnVoiceToggle) {
+    btnVoiceToggle.className = 'btn-voice-toggle disconnected';
+    if (btnVoiceToggleText) btnVoiceToggleText.textContent = 'Connect Voice';
+    const icon = btnVoiceToggle.querySelector('.voice-toggle-icon');
+    if (icon) icon.textContent = '▶️';
+  }
+
+  if (wsStatus) {
+    wsStatus.className = 'status-pill';
+    wsStatus.innerHTML = '<span class="status-dot" style="background:#64748b"></span><span class="status-label" style="color:#94a3b8">VOICE DISCONNECTED (IDLE)</span>';
+  }
+
+  if (speechStateLabel && !speechStateLabel.textContent.includes('REACHED') && !speechStateLabel.textContent.includes('INACTIVITY') && !speechStateLabel.textContent.includes('LIMIT')) {
+    speechStateLabel.textContent = 'VOICE DISCONNECTED · CLICK "CONNECT VOICE" TO RESUME';
+  }
+}
+
+function connectVoiceSession() {
+  isUserExplicitlyDisconnected = false;
+  sessionTurnCount = 0;
+  sessionSecondsRemaining = MAX_SESSION_DURATION_SEC;
+  updateSessionLimitsUI();
+  initAssemblyAiEngine();
+}
 
 async function initAssemblyAiEngine() {
   if (isAaiConnecting) return;
+  if (isUserExplicitlyDisconnected) return;
   if (aaiWs && (aaiWs.readyState === WebSocket.OPEN || aaiWs.readyState === WebSocket.CONNECTING)) return;
 
   isAaiConnecting = true;
@@ -196,8 +320,12 @@ async function initAssemblyAiEngine() {
 
     const res = await fetch('/api/v1/assemblyai-token');
     const data = await res.json();
-    if (!data.success || !data.token) {
-      throw new Error(data.error || 'Failed to mint AssemblyAI token');
+    if (res.status === 429 || !data.success || !data.token) {
+      const errMsg = data.error || 'Failed to mint AssemblyAI token';
+      disconnectVoiceSession('Rate limit or token mint failure');
+      speechStateLabel.textContent = `⚠️ ${errMsg}`;
+      wsStatus.innerHTML = `<span class="status-dot" style="background:#f59e0b"></span><span class="status-label" style="color:#f59e0b">${res.status === 429 ? 'RATE LIMITED' : 'AAI ERROR'}</span>`;
+      return;
     }
 
     aaiToken = data.token;
@@ -214,11 +342,22 @@ async function initAssemblyAiEngine() {
 
     aaiWs.onopen = () => {
       isAaiConnecting = false;
+      isUserExplicitlyDisconnected = false;
       console.log('🎙️ [AssemblyAI WebSocket] Connected to Voice Agent API');
       wsStatus.className = 'status-pill';
       wsStatus.innerHTML = '<span class="status-dot" style="background:#10b981"></span><span class="status-label">ASSEMBLYAI VOICE LIVE</span>';
       speechStateLabel.textContent = 'READY · HOLD SPACEBAR TO TALK WITH ASSEMBLYAI';
-      
+
+      if (btnVoiceToggle) {
+        btnVoiceToggle.className = 'btn-voice-toggle connected';
+        if (btnVoiceToggleText) btnVoiceToggleText.textContent = 'Disconnect Voice';
+        const icon = btnVoiceToggle.querySelector('.voice-toggle-icon');
+        if (icon) icon.textContent = '⏹️';
+      }
+
+      startSessionCountdown();
+      resetIdleInactivityTimer();
+
       // Update session with published agent
       aaiWs.send(JSON.stringify({
         type: 'session.update',
@@ -235,13 +374,17 @@ async function initAssemblyAiEngine() {
           console.error('❌ AssemblyAI Session Error:', msg);
           speechStateLabel.textContent = `AssemblyAI Error: ${msg.message || msg.code}`;
           wsStatus.innerHTML = '<span class="status-dot" style="background:#ef4444"></span><span class="status-label">AAI AUTH ERROR</span>';
+          disconnectVoiceSession('Session error');
           return;
         } else if ((msg.type === 'reply.audio' || msg.type === 'output.audio') && (msg.data || msg.audio)) {
+          resetIdleInactivityTimer();
           playPcmBase64(msg.data || msg.audio);
         } else if ((msg.type === 'transcript.agent' || msg.type === 'reply.transcript' || msg.type === 'output.transcript') && (msg.text || msg.transcript)) {
           appendMessage('agent', msg.text || msg.transcript);
+          registerVoiceTurn();
         } else if ((msg.type === 'transcript.user' || msg.type === 'input.transcript' || msg.type === 'transcript') && (msg.text || msg.transcript)) {
           appendMessage('user', msg.text || msg.transcript);
+          resetIdleInactivityTimer();
         } else if (msg.type === 'reply.interrupted' || msg.type === 'output.interrupted') {
           flushPcmAudioQueue();
           speechStateLabel.textContent = '⚡ BARGE-IN: FLUSHED AUDIO STREAM';
@@ -258,11 +401,24 @@ async function initAssemblyAiEngine() {
 
     aaiWs.onclose = (event) => {
       isAaiConnecting = false;
+      stopSessionCountdown();
       console.log(`🎙️ AssemblyAI WS closed (code: ${event.code}, reason: ${event.reason})`);
-      if (currentEngineMode === 'assemblyai' && event.code !== 1000) {
+
+      if (isUserExplicitlyDisconnected || event.code === 1000) {
+        if (btnVoiceToggle) {
+          btnVoiceToggle.className = 'btn-voice-toggle disconnected';
+          if (btnVoiceToggleText) btnVoiceToggleText.textContent = 'Connect Voice';
+          const icon = btnVoiceToggle.querySelector('.voice-toggle-icon');
+          if (icon) icon.textContent = '▶️';
+        }
+        return;
+      }
+
+      if (currentEngineMode === 'assemblyai') {
         if (event.code === 1008) {
           wsStatus.innerHTML = '<span class="status-dot" style="background:#ef4444"></span><span class="status-label">AAI AUTH FAILED (1008)</span>';
           speechStateLabel.textContent = 'ASSEMBLYAI AUTH FAILED · CHECK API KEY / AGENT PAIRING';
+          disconnectVoiceSession('Auth failed');
           return;
         }
         wsStatus.innerHTML = '<span class="status-dot" style="background:#ef4444"></span><span class="status-label">ASSEMBLYAI RECONNECTING...</span>';
@@ -1117,6 +1273,17 @@ if (btnModeLocal) {
 
 if (btnModeAssembly) {
   btnModeAssembly.addEventListener('click', () => setEngineMode('assemblyai'));
+}
+
+// Disconnect / Connect Voice Button Listener
+if (btnVoiceToggle) {
+  btnVoiceToggle.addEventListener('click', () => {
+    if (aaiWs && (aaiWs.readyState === WebSocket.OPEN || aaiWs.readyState === WebSocket.CONNECTING)) {
+      disconnectVoiceSession('User Clicked Disconnect');
+    } else {
+      connectVoiceSession();
+    }
+  });
 }
 
 // Initialize on Load

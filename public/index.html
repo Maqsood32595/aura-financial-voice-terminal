@@ -99,6 +99,20 @@
             </button>
           </div>
 
+          <!-- Voice Session Control & Cost Safety Limits -->
+          <div class="session-limits-bar">
+            <button class="btn-voice-toggle connected" id="btnVoiceToggle" title="Start or Stop Live AssemblyAI Voice Stream">
+              <span class="voice-toggle-icon">⏹️</span>
+              <span id="btnVoiceToggleText">Disconnect Voice</span>
+            </button>
+            <div class="quota-badge" title="Cost & quota guardrail: 4 min max session or 15 turns">
+              <span class="quota-icon">🛡️</span>
+              <span id="sessionTimerDisplay">04:00</span>
+              <span class="quota-sep">·</span>
+              <span id="sessionTurnsDisplay">0/15 Turns</span>
+            </div>
+          </div>
+
           <!-- Noise Gate & Proximity Sliders -->
           <div class="audio-controls-row">
             <div class="control-group">

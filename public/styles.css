@@ -421,6 +421,82 @@ canvas#audioVisualizerCanvas {
   gap: 6px;
 }
 
+/* Voice Session Control & Cost Safety Limits */
+.session-limits-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: rgba(10, 16, 26, 0.75);
+  border: 1px solid rgba(45, 62, 94, 0.7);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
+.btn-voice-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-voice-toggle.connected {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  color: #fca5a5;
+}
+
+.btn-voice-toggle.connected:hover {
+  background: rgba(239, 68, 68, 0.25);
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.3);
+  color: #fff;
+}
+
+.btn-voice-toggle.disconnected {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.5);
+  color: #6ee7b7;
+}
+
+.btn-voice-toggle.disconnected:hover {
+  background: rgba(16, 185, 129, 0.25);
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.3);
+  color: #fff;
+}
+
+.quota-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.quota-icon {
+  font-size: 12px;
+}
+
+.quota-sep {
+  opacity: 0.5;
+}
+
+#sessionTimerDisplay {
+  color: var(--accent-cyan);
+  font-weight: 700;
+}
+
+#sessionTurnsDisplay {
+  color: var(--accent-gold);
+  font-weight: 700;
+}
+
 .audio-controls-row {
   display: flex;
   justify-content: space-between;
