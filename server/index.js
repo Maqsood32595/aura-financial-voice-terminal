@@ -61,11 +61,18 @@ app.get('/favicon.ico', (req, res) => res.status(204).end());
 // AssemblyAI Voice Agent Token Minting Endpoint
 app.get('/api/v1/assemblyai-token', async (req, res) => {
   try {
-    const apiKey = process.env.ASSEMBLYAI_API_KEY;
-    const agentId = process.env.ASSEMBLYAI_AGENT_ID || 'd2ea7533-b74b-4aef-98b5-d365c5558bcb';
-    
-    if (!apiKey) {
-      return res.status(400).json({ error: 'ASSEMBLYAI_API_KEY is not set' });
+    const AURA_DEFAULT_KEY = 'a462cdf21a0f44fd92d7fe896afab05c';
+    const AURA_DEFAULT_AGENT = 'd2ea7533-b74b-4aef-98b5-d365c5558bcb';
+
+    let apiKey = (process.env.ASSEMBLYAI_API_KEY || '').trim().replace(/['"]/g, '');
+    let agentId = (process.env.ASSEMBLYAI_AGENT_ID || '').trim().replace(/['"]/g, '');
+
+    // If agent ID is the default Aura agent or not provided, ensure we use the key that owns this agent
+    if (!agentId || agentId === AURA_DEFAULT_AGENT) {
+      agentId = AURA_DEFAULT_AGENT;
+      apiKey = AURA_DEFAULT_KEY;
+    } else if (!apiKey) {
+      apiKey = AURA_DEFAULT_KEY;
     }
 
     const tokenRes = await fetch('https://agents.assemblyai.com/v1/tokens', {

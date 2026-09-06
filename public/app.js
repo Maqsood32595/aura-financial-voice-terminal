@@ -231,6 +231,11 @@ async function initAssemblyAiEngine() {
         const msg = JSON.parse(event.data);
         if (msg.type === 'session.ready' || msg.type === 'session.updated') {
           console.log('✅ AssemblyAI Session Active:', msg.session_id || msg.type);
+        } else if (msg.type === 'session.error') {
+          console.error('❌ AssemblyAI Session Error:', msg);
+          speechStateLabel.textContent = `AssemblyAI Error: ${msg.message || msg.code}`;
+          wsStatus.innerHTML = '<span class="status-dot" style="background:#ef4444"></span><span class="status-label">AAI AUTH ERROR</span>';
+          return;
         } else if ((msg.type === 'reply.audio' || msg.type === 'output.audio') && (msg.data || msg.audio)) {
           playPcmBase64(msg.data || msg.audio);
         } else if ((msg.type === 'transcript.agent' || msg.type === 'reply.transcript' || msg.type === 'output.transcript') && (msg.text || msg.transcript)) {
@@ -255,6 +260,11 @@ async function initAssemblyAiEngine() {
       isAaiConnecting = false;
       console.log(`🎙️ AssemblyAI WS closed (code: ${event.code}, reason: ${event.reason})`);
       if (currentEngineMode === 'assemblyai' && event.code !== 1000) {
+        if (event.code === 1008) {
+          wsStatus.innerHTML = '<span class="status-dot" style="background:#ef4444"></span><span class="status-label">AAI AUTH FAILED (1008)</span>';
+          speechStateLabel.textContent = 'ASSEMBLYAI AUTH FAILED · CHECK API KEY / AGENT PAIRING';
+          return;
+        }
         wsStatus.innerHTML = '<span class="status-dot" style="background:#ef4444"></span><span class="status-label">ASSEMBLYAI RECONNECTING...</span>';
         setTimeout(initAssemblyAiEngine, 3000);
       }

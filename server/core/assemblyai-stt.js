@@ -20,7 +20,7 @@ const FINANCIAL_KEYPHRASE_BOOST = [
  */
 export async function transcribeWithAssemblyAI(audioBuffer) {
   const t0 = performance.now();
-  const apiKey = process.env.ASSEMBLYAI_API_KEY || ASSEMBLYAI_API_KEY;
+  const apiKey = (process.env.ASSEMBLYAI_API_KEY || ASSEMBLYAI_API_KEY || 'a462cdf21a0f44fd92d7fe896afab05c').trim().replace(/['"]/g, '');
   if (!apiKey) {
     throw new Error('ASSEMBLYAI_API_KEY is not set.');
   }
