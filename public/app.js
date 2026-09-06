@@ -183,7 +183,13 @@ function flushPcmAudioQueue() {
 }
 
 // 3. Connect to AssemblyAI Voice Agent API WebSocket
+let isAaiConnecting = false;
+
 async function initAssemblyAiEngine() {
+  if (isAaiConnecting) return;
+  if (aaiWs && (aaiWs.readyState === WebSocket.OPEN || aaiWs.readyState === WebSocket.CONNECTING)) return;
+
+  isAaiConnecting = true;
   try {
     speechStateLabel.textContent = 'CONNECTING TO ASSEMBLYAI VOICE AGENT API...';
     wsStatus.innerHTML = '<span class="status-dot" style="background:#f59e0b"></span><span class="status-label">FETCHING AAI TOKEN...</span>';
@@ -207,6 +213,7 @@ async function initAssemblyAiEngine() {
     aaiWs = new WebSocket(url);
 
     aaiWs.onopen = () => {
+      isAaiConnecting = false;
       console.log('🎙️ [AssemblyAI WebSocket] Connected to Voice Agent API');
       wsStatus.className = 'status-pill';
       wsStatus.innerHTML = '<span class="status-dot" style="background:#10b981"></span><span class="status-label">ASSEMBLYAI VOICE LIVE</span>';
@@ -240,16 +247,20 @@ async function initAssemblyAiEngine() {
     };
 
     aaiWs.onerror = (err) => {
+      isAaiConnecting = false;
       console.error('AssemblyAI WS Error:', err);
     };
 
-    aaiWs.onclose = () => {
-      if (currentEngineMode === 'assemblyai') {
+    aaiWs.onclose = (event) => {
+      isAaiConnecting = false;
+      console.log(`🎙️ AssemblyAI WS closed (code: ${event.code}, reason: ${event.reason})`);
+      if (currentEngineMode === 'assemblyai' && event.code !== 1000) {
         wsStatus.innerHTML = '<span class="status-dot" style="background:#ef4444"></span><span class="status-label">ASSEMBLYAI RECONNECTING...</span>';
         setTimeout(initAssemblyAiEngine, 3000);
       }
     };
   } catch (err) {
+    isAaiConnecting = false;
     console.error('AssemblyAI Engine Init Failed:', err);
     speechStateLabel.textContent = `AAI Error: ${err.message}`;
   }
@@ -655,7 +666,7 @@ async function startPttRecording() {
   triggerInstantBargeIn('Spacebar Push-To-Talk Pressed');
 
   // Verify AssemblyAI connection health
-  if (currentEngineMode === 'assemblyai' && (!aaiWs || aaiWs.readyState !== WebSocket.OPEN)) {
+  if (currentEngineMode === 'assemblyai' && (!aaiWs || aaiWs.readyState === WebSocket.CLOSED)) {
     console.log('🔄 Reconnecting AssemblyAI Voice Agent...');
     initAssemblyAiEngine();
   }
