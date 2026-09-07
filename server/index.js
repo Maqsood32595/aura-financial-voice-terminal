@@ -31,7 +31,7 @@ app.use(express.static(path.resolve(__dirname, '../public')));
 // 1. Start Server Immediately to pass Render/Host port detection
 server.listen(PORT, async () => {
   console.log(`\n🏛️ [SEC EDGAR 10-K Financial Voice Agent (Voice-Locked)] Running at http://localhost:${PORT}`);
-  console.log(`⚡ [In-RAM Architecture] 200 S&P 500 Companies & In-RAM SQL Engine active on port ${PORT}\n`);
+  console.log(`⚡ [In-RAM Architecture] 585 S&P 500 Companies & In-RAM SQL Engine active on port ${PORT}\n`);
 
   await shadowFinancialDb.init();
   const kernel = new FractalKernel(app);

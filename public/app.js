@@ -1040,7 +1040,7 @@ async function fetchFilings() {
 function renderFilingsTable(filings) {
   if (!inventoryTbody) return;
   inventoryTbody.innerHTML = '';
-  filings.slice(0, 100).forEach(f => {
+  filings.slice(0, 500).forEach(f => {
     const tr = document.createElement('tr');
     tr.id = `filing-row-${f.ticker}`;
     const revB = f.revenue ? (Number(f.revenue) / 1e9).toFixed(2) : '0.00';
