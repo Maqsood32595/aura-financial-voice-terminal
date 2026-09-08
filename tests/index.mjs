@@ -9,6 +9,8 @@ const suites = [
   { name: 'SEC EDGAR 6-Gate Master Falsification Suite', path: 'tests/piet/piet.mjs' },
   { name: 'In-RAM Financial Calculations & Comparison Suite', path: 'tests/modules/financial_calculations.test.mjs' },
   { name: 'SEC 10-K Data Accuracy & Schema Invariant Suite', path: 'tests/modules/sec_accuracy.test.mjs' },
+  { name: 'Broad Multi-Company Screener & Multi-Year Suite', path: 'tests/modules/broad_screener.test.mjs' },
+  { name: 'In-RAM Speeding Architecture & Exact Numbers Suite', path: 'tests/modules/inram_speeding_and_screener.test.mjs' },
   { name: 'Financial Notepad Logger & Audit Trail Suite', path: 'tests/modules/notepad_logger.test.mjs' },
   { name: 'Financial Multi-Turn Deep Memory Suite', path: 'tests/modules/deep_memory.test.mjs' }
 ];

@@ -30,7 +30,7 @@ export async function transcribeWithAssemblyAI(audioBuffer) {
     method: 'POST',
     headers: {
       'Authorization': apiKey,
-      'Content-Type': 'audio/webm'
+      'Content-Type': 'application/octet-stream'
     },
     body: audioBuffer
   });

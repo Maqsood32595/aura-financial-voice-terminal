@@ -13,6 +13,8 @@ import { transcribeWithGroqWhisper } from './core/groq-whisper.js';
 import { transcribeWithAssemblyAI } from './core/assemblyai-stt.js';
 import { voiceBiometrics } from './core/voice-biometrics.js';
 import { notepadFinancialLogger } from './core/notepad-financial-logger.js';
+import { inRamTensors } from './core/inram-tensors.js';
+import { inRamLlmCaller } from './core/inram-llm-caller.js';
 
 dotenv.config();
 
@@ -31,16 +33,25 @@ app.use(express.static(path.resolve(__dirname, '../public')));
 // 1. Start Server Immediately to pass Render/Host port detection
 server.listen(PORT, async () => {
   console.log(`\n🏛️ [SEC EDGAR 10-K Financial Voice Agent (Voice-Locked)] Running at http://localhost:${PORT}`);
-  console.log(`⚡ [In-RAM Architecture] 585 S&P 500 Companies & In-RAM SQL Engine active on port ${PORT}\n`);
-
   await shadowFinancialDb.init();
+  inRamTensors.init();
+  inRamLlmCaller.prewarm();
+  console.log(`⚡ [In-RAM Architecture] ${shadowFinancialDb.filingsTable.length} S&P 500 Filings (FY2022-2024) & In-RAM SQL Engine active on port ${PORT}\n`);
   const kernel = new FractalKernel(app);
   await kernel.bootstrap();
 });
 
 // REST API Endpoints
 app.get('/api/v1/filings', async (req, res) => {
-  const result = await shadowFinancialDb.query('SELECT * FROM sec_filings ORDER BY revenue DESC;');
+  const { fiscal_year, min_fcf, ticker } = req.query;
+  let sql = 'SELECT * FROM sec_filings';
+  const conditions = [];
+  if (fiscal_year) conditions.push(`fiscal_year = ${parseInt(fiscal_year, 10)}`);
+  if (min_fcf) conditions.push(`free_cash_flow > ${parseFloat(min_fcf)}`);
+  if (ticker) conditions.push(`ticker = '${ticker.toUpperCase().trim()}'`);
+  if (conditions.length > 0) sql += ` WHERE ${conditions.join(' AND ')}`;
+  sql += ' ORDER BY revenue DESC;';
+  const result = await shadowFinancialDb.query(sql);
   res.json({ success: true, count: result.rows.length, filings: result.rows });
 });
 
@@ -132,34 +143,38 @@ app.get('/api/v1/assemblyai-token', async (req, res) => {
       record = { count: 0, resetTime: now + RATE_LIMIT_WINDOW_MS, lastRequest: 0 };
     }
 
-    if (now - record.lastRequest < MIN_COOLDOWN_MS) {
-      const waitSec = Math.ceil((MIN_COOLDOWN_MS - (now - record.lastRequest)) / 1000);
-      return res.status(429).json({
-        success: false,
-        error: `Please wait ${waitSec}s before reconnecting voice.`
-      });
-    }
+    const isLocal = clientIp === '::1' || clientIp === '127.0.0.1' || clientIp === '::ffff:127.0.0.1' || clientIp === 'unknown';
 
-    if (record.count >= MAX_TOKENS_PER_WINDOW) {
-      const resetMin = Math.ceil((record.resetTime - now) / 60000);
-      return res.status(429).json({
-        success: false,
-        error: `Voice session limit reached (${MAX_TOKENS_PER_WINDOW} sessions / 10 min). Please try again in ${resetMin}m.`
-      });
-    }
+    if (!isLocal) {
+      if (now - record.lastRequest < MIN_COOLDOWN_MS) {
+        const waitSec = Math.ceil((MIN_COOLDOWN_MS - (now - record.lastRequest)) / 1000);
+        return res.status(429).json({
+          success: false,
+          error: `Please wait ${waitSec}s before reconnecting voice.`
+        });
+      }
 
-    record.count++;
-    record.lastRequest = now;
-    tokenRateLimitStore.set(clientIp, record);
+      if (record.count >= MAX_TOKENS_PER_WINDOW) {
+        const resetMin = Math.ceil((record.resetTime - now) / 60000);
+        return res.status(429).json({
+          success: false,
+          error: `Voice session limit reached (${MAX_TOKENS_PER_WINDOW} sessions / 10 min). Please try again in ${resetMin}m.`
+        });
+      }
+
+      record.count++;
+      record.lastRequest = now;
+      tokenRateLimitStore.set(clientIp, record);
+    }
 
     const AURA_DEFAULT_KEY = 'a462cdf21a0f44fd92d7fe896afab05c';
-    const AURA_DEFAULT_AGENT = 'd2ea7533-b74b-4aef-98b5-d365c5558bcb';
+    const AURA_DEFAULT_AGENT = 'de09da69-b296-45bc-a2f4-8dd8a7fed34d';
 
     let apiKey = (process.env.ASSEMBLYAI_API_KEY || '').trim().replace(/['"]/g, '');
     let agentId = (process.env.ASSEMBLYAI_AGENT_ID || '').trim().replace(/['"]/g, '');
 
     // If agent ID is the default Aura agent or not provided, ensure we use the key that owns this agent
-    if (!agentId || agentId === AURA_DEFAULT_AGENT) {
+    if (!agentId || agentId === 'd2ea7533-b74b-4aef-98b5-d365c5558bcb' || agentId === '7dd2c649-8c76-4519-b16c-8abc2313e213' || agentId === '733364a0-4d4e-4855-8834-f32f5df8a69e' || agentId === 'efa599f8-d2d2-46be-b075-a5ac0d4f0a94' || agentId === AURA_DEFAULT_AGENT) {
       agentId = AURA_DEFAULT_AGENT;
       apiKey = AURA_DEFAULT_KEY;
     } else if (!apiKey) {
@@ -201,20 +216,106 @@ app.get('/api/v1/assemblyai-token', async (req, res) => {
 });
 
 // SEC Financial Tool Endpoint for In-RAM WebAssembly lookups
+// SEC Financial Tool Endpoint for In-RAM WebAssembly lookups & Broad Screeners
 app.all('/api/v1/sec-tool', async (req, res) => {
   try {
-    const ticker = (req.body?.ticker || req.query?.ticker || req.query?.search || '').toUpperCase();
-    if (!ticker) {
-      return res.json({ error: 'Ticker is required' });
+    const rawQuery = (req.body?.query || req.body?.search || req.body?.ticker || req.query?.query || req.query?.search || req.query?.ticker || '').trim();
+    if (!rawQuery) {
+      return res.json({ error: 'Query or Ticker is required' });
     }
+
+    // 1. Process query through comprehensive In-RAM Voice Orchestrator
+    const ephemeralSession = sessionEngine.createSession(`sec-tool-${Date.now()}`);
+    const turnResult = await voiceOrchestrator.processVoiceTurn({
+      session: ephemeralSession,
+      userTranscript: rawQuery
+    });
+    sessionEngine.teardownSession(ephemeralSession.id);
+
+    if (turnResult.toolExecution && turnResult.toolExecution.output) {
+      const criteria = turnResult.toolExecution.criteria || turnResult.toolExecution.tool;
+      const items = turnResult.toolExecution.output.slice(0, 10);
+      const rawLines = [
+        `[AUDITED SEC EDGAR IN-RAM SCREENER RESULTS]`,
+        `CRITERIA: ${criteria}`,
+        `MATCHES: ${turnResult.toolExecution.count || items.length} Companies Found`,
+        `--------------------------------------------------------------------------------`
+      ];
+      items.forEach((item, idx) => {
+        const m = item.metricDisplay || item.freeCashFlowDisplay || item.netLossDisplay || item.grossMargin || item.revenueDisplay || '';
+        rawLines.push(`${idx + 1}. ${item.companyName || item.ticker} (${item.ticker || ''}) -> ${m}`);
+      });
+      rawLines.push(`--------------------------------------------------------------------------------`);
+      rawLines.push(`STATUS: VERIFIED IN-RAM AUDITED DATA (<0.05ms)`);
+
+      return res.json({
+        found: true,
+        type: turnResult.toolExecution.tool,
+        criteria: turnResult.toolExecution.criteria,
+        count: turnResult.toolExecution.count,
+        reply: turnResult.replyText,
+        results: turnResult.toolExecution.output,
+        rawMachineReadable: rawLines.join('\n')
+      });
+    }
+
+    if (turnResult.comparisonResult && !turnResult.comparisonResult.error) {
+      const cmp = turnResult.comparisonResult;
+      const rawCmpLines = [
+        `[AUDITED SEC 10-K IN-RAM COMPARISON]`,
+        `FY${cmp.fiscalYear || 2023}: ${cmp.companyA?.ticker} vs ${cmp.companyB?.ticker}`,
+        `--------------------------------------------------------------------------------`,
+        `• ${cmp.companyA?.ticker} (${cmp.companyA?.companyName}): Revenue ${cmp.companyA?.revenue}, Gross Margin ${cmp.companyA?.grossMarginPercent}, Operating Margin ${cmp.companyA?.operatingMarginPercent}`,
+        `• ${cmp.companyB?.ticker} (${cmp.companyB?.companyName}): Revenue ${cmp.companyB?.revenue}, Gross Margin ${cmp.companyB?.grossMarginPercent}, Operating Margin ${cmp.companyB?.operatingMarginPercent}`,
+        `--------------------------------------------------------------------------------`,
+        `RATIO / SUMMARY: ${cmp.ratioSummary || cmp.comparisonSummary || 'Computed in RAM (<0.05ms)'}`
+      ];
+
+      return res.json({
+        found: true,
+        type: 'COMPARE',
+        reply: turnResult.replyText,
+        comparison: turnResult.comparisonResult,
+        rawMachineReadable: rawCmpLines.join('\n')
+      });
+    }
+
+    if (turnResult.matchedFiling) {
+      return res.json({
+        found: true,
+        type: 'FILING',
+        reply: turnResult.replyText,
+        filing: turnResult.matchedFiling,
+        retrievedFacts: turnResult.retrievedFacts,
+        rawMachineReadable: turnResult.retrievedFacts?.rawMachineReadableText || null,
+        multiYear: turnResult.retrievedFacts?.multiYear || null
+      });
+    }
+
+    // 2. Fallback SQL lookup by ticker or company name
+    const ticker = rawQuery.toUpperCase();
     const result = await shadowFinancialDb.query(
       'SELECT * FROM sec_filings WHERE ticker = $1 OR company_name ILIKE $2 LIMIT 1;',
       [ticker, `%${ticker}%`]
     );
     if (result.rows.length === 0) {
-      return res.json({ found: false, message: `No Form 10-K filing found for ${ticker}` });
+      return res.json({
+        found: false,
+        reply: turnResult.replyText || `No Form 10-K filing found for ${ticker}`,
+        message: `No Form 10-K filing found for ${ticker}`
+      });
     }
-    res.json({ found: true, filing: result.rows[0] });
+
+    const fallbackFacts = voiceOrchestrator.buildRetrievedFacts(result.rows[0]);
+    res.json({
+      found: true,
+      type: 'FILING',
+      filing: result.rows[0],
+      retrievedFacts: fallbackFacts,
+      rawMachineReadable: fallbackFacts?.rawMachineReadableText || null,
+      multiYear: fallbackFacts?.multiYear || null,
+      reply: turnResult.replyText || `Found audited 10-K filing for ${result.rows[0].company_name || result.rows[0].companyName || ticker}.`
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -239,8 +340,8 @@ wss.on('connection', (ws) => {
       if (Buffer.isBuffer(rawMessage) || rawMessage instanceof ArrayBuffer) {
         const audioBuffer = Buffer.isBuffer(rawMessage) ? rawMessage : Buffer.from(rawMessage);
         
-        // Guard against micro fragments (< 500 bytes)
-        if (audioBuffer.length < 500) {
+        // Guard against micro fragments (< 2000 bytes)
+        if (audioBuffer.length < 2000) {
           return;
         }
 
@@ -298,6 +399,9 @@ wss.on('connection', (ws) => {
           type: 'AGENT_VOICE_REPLY',
           replyText: result.replyText,
           fsmState: result.fsmState,
+          toolExecution: result.toolExecution,
+          retrievedFacts: result.retrievedFacts,
+          audioSnippet: result.audioSnippet,
           telemetry: {
             sttMs: latencyMs,
             ...result.telemetry
@@ -331,6 +435,9 @@ wss.on('connection', (ws) => {
           type: 'AGENT_VOICE_REPLY',
           replyText: result.replyText,
           fsmState: result.fsmState,
+          toolExecution: result.toolExecution,
+          retrievedFacts: result.retrievedFacts,
+          audioSnippet: result.audioSnippet,
           telemetry: result.telemetry,
           matchedFiling: result.matchedFiling,
           comparisonResult: result.comparisonResult

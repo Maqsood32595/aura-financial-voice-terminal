@@ -15,6 +15,7 @@ export class SessionEngine {
         analystName: null,
         focusSector: null,
         activeCompany: null,
+        activeYear: null,
         activeCompanies: [],
         inquiredCompanies: [],
         favoriteMetrics: [],

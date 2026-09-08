@@ -18,6 +18,10 @@ export class ShadowFinancialDb {
     this.pg = null;
   }
 
+  async initialize() {
+    return this.init();
+  }
+
   async init() {
     if (this.isInitialized) return;
 
@@ -51,6 +55,7 @@ export class ShadowFinancialDb {
       ticker: f.ticker,
       company_name: f.companyName,
       sector: f.sector,
+      industry_type: f.industryType || 'STANDARD',
       cik: f.cik,
       fiscal_year: f.fiscalYear,
       revenue: Number(f.revenue || 0),
@@ -60,6 +65,8 @@ export class ShadowFinancialDb {
       operating_margin_pct: Number(f.operatingMarginPercent || 0),
       net_income: Number(f.netIncome || 0),
       rd_expense: Number(f.rdExpense || 0),
+      operating_cash_flow: Number(f.operatingCashFlow || 0),
+      capital_expenditures: Number(f.capitalExpenditures || 0),
       free_cash_flow: Number(f.freeCashFlow || 0),
       key_highlights: f.keyHighlights || ''
     }));
@@ -83,6 +90,71 @@ export class ShadowFinancialDb {
     console.log(`⚡ [SEC In-RAM Relational Engine] Initialized with ${this.filingsTable.length} filings (0 disk I/O, <15MB RAM)`);
   }
 
+  evaluateWhereClause(row, whereClause, params = []) {
+    if (!whereClause) return true;
+
+    // Strip trailing semicolons
+    let clause = whereClause.replace(/;+$/, '').trim();
+    params.forEach((val, idx) => {
+      const placeholder = new RegExp(`\\$${idx + 1}`, 'g');
+      if (typeof val === 'string') {
+        clause = clause.replace(placeholder, `'${val}'`);
+      } else {
+        clause = clause.replace(placeholder, String(val));
+      }
+    });
+
+    const conditions = clause.split(/\s+AND\s+/i);
+    for (const cond of conditions) {
+      const trimmed = cond.trim();
+      if (!trimmed) continue;
+
+      // IS NULL / IS NOT NULL
+      if (/([a-z0-9_]+)\s+IS\s+NULL/i.test(trimmed)) {
+        const match = trimmed.match(/([a-z0-9_]+)\s+IS\s+NULL/i);
+        const col = match[1].toLowerCase();
+        if (row[col] !== null && row[col] !== undefined) return false;
+        continue;
+      }
+      if (/([a-z0-9_]+)\s+IS\s+NOT\s+NULL/i.test(trimmed)) {
+        const match = trimmed.match(/([a-z0-9_]+)\s+IS\s+NOT\s+NULL/i);
+        const col = match[1].toLowerCase();
+        if (row[col] === null || row[col] === undefined) return false;
+        continue;
+      }
+
+      // Comparison operators: >=, <=, !=, <>, >, <, =
+      const compMatch = trimmed.match(/([a-z0-9_]+)\s*(>=|<=|!=|<>|>|<|=)\s*(['"]?)(.*?)\3(?:\s|$)/i);
+      if (compMatch) {
+        const col = compMatch[1].toLowerCase();
+        const op = compMatch[2];
+        const rawTarget = compMatch[4];
+        const rowVal = row[col];
+
+        if (rowVal === null || rowVal === undefined) return false;
+
+        const numTarget = Number(rawTarget);
+        const isNumeric = !isNaN(numTarget) && rawTarget.trim() !== '' && !compMatch[3];
+
+        if (isNumeric) {
+          const numRow = Number(rowVal);
+          if (op === '=' && !(numRow === numTarget)) return false;
+          if (op === '>' && !(numRow > numTarget)) return false;
+          if (op === '>=' && !(numRow >= numTarget)) return false;
+          if (op === '<' && !(numRow < numTarget)) return false;
+          if (op === '<=' && !(numRow <= numTarget)) return false;
+          if ((op === '!=' || op === '<>') && !(numRow !== numTarget)) return false;
+        } else {
+          const strRow = String(rowVal).toUpperCase();
+          const strTarget = rawTarget.toUpperCase();
+          if (op === '=' && strRow !== strTarget) return false;
+          if ((op === '!=' || op === '<>') && strRow === strTarget) return false;
+        }
+      }
+    }
+    return true;
+  }
+
   async query(sql, params = []) {
     const t0 = performance.now();
     await this.init();
@@ -94,20 +166,19 @@ export class ShadowFinancialDb {
       rows = res.rows;
     } else {
       // Native High-Speed In-RAM SQL Query Evaluator
-      const cleanSql = sql.trim();
+      const cleanSql = sql.trim().replace(/;+$/, '');
       const upperSql = cleanSql.toUpperCase();
 
       if (upperSql.startsWith('SELECT COUNT(*)')) {
         rows = [{ cnt: this.filingsTable.length }];
-      } else if (upperSql.includes('FROM SEC_FILINGS')) {
+      } else if (upperSql.includes('FROM SEC_FILINGS') || upperSql.includes('FROM FILINGS')) {
         let dataset = [...this.filingsTable];
 
-        // Parameterized WHERE clause filtering (e.g. UPPER(ticker) = UPPER($1))
-        if (upperSql.includes('WHERE')) {
-          if (params.length > 0 && typeof params[0] === 'string') {
-            const targetTicker = params[0].toUpperCase().trim();
-            dataset = dataset.filter(r => r.ticker.toUpperCase() === targetTicker);
-          }
+        // Multi-condition WHERE clause evaluation
+        const whereMatch = cleanSql.match(/WHERE\s+([\s\S]*?)(?:ORDER\s+BY|LIMIT|$)/i);
+        if (whereMatch) {
+          const whereClause = whereMatch[1].trim();
+          dataset = dataset.filter(row => this.evaluateWhereClause(row, whereClause, params));
         }
 
         // ORDER BY
@@ -191,3 +262,4 @@ export class ShadowFinancialDb {
 }
 
 export const shadowFinancialDb = new ShadowFinancialDb();
+export const shadowDb = shadowFinancialDb;

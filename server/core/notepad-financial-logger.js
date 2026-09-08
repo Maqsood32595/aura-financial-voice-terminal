@@ -31,12 +31,20 @@ export class NotepadFinancialLogger {
     });
   }
 
-  captureFinancialTurn({ session, userTranscript, agentReply, matchedFiling, comparisonResult }) {
+  captureFinancialTurn({ session, userTranscript, agentReply, matchedFiling, comparisonResult, toolExecution }) {
     if (!userTranscript || !agentReply) return null;
 
     const timestamp = new Date().toLocaleString();
-    const ticker = matchedFiling ? matchedFiling.ticker : (comparisonResult ? `${comparisonResult.companyA?.ticker} vs ${comparisonResult.companyB?.ticker}` : 'General Macro');
-    const company = matchedFiling ? matchedFiling.companyName : (comparisonResult ? 'Cross-Company Comparison' : 'Market Query');
+    let ticker = matchedFiling ? matchedFiling.ticker : (comparisonResult ? `${comparisonResult.companyA?.ticker} vs ${comparisonResult.companyB?.ticker}` : 'General Macro');
+    let company = matchedFiling ? matchedFiling.companyName : (comparisonResult ? 'Cross-Company Comparison' : 'Market Query');
+
+    if (toolExecution?.tool?.startsWith('screener_')) {
+      company = `S&P 500 Financial Screener (${toolExecution.criteria || toolExecution.tool})`;
+      ticker = `${toolExecution.count || toolExecution.output?.length || 0} Companies Identified`;
+    } else if (toolExecution?.tool === 'calculate_yoy_growth') {
+      company = `${toolExecution.output?.companyName || 'Company'} Year-over-Year Growth`;
+      ticker = `${toolExecution.output?.ticker} (${toolExecution.output?.previousYear} vs ${toolExecution.output?.currentYear})`;
+    }
 
     const entry = `--------------------------------------------------------------------------------
 📅 DATE & TIME : ${timestamp}

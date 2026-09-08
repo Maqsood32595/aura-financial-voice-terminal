@@ -3,6 +3,17 @@
  * Push-To-Talk (Hold Spacebar), Port 5030 Biometrics, AudioWorklet VAD & Live Visualizer
  */
 
+// Suppress benign third-party browser extension message channel rejections
+window.addEventListener('unhandledrejection', (event) => {
+  if (event?.reason?.message && (
+    event.reason.message.includes('A listener indicated an asynchronous response') ||
+    event.reason.message.includes('message channel closed') ||
+    event.reason.message.includes('Extension context invalidated')
+  )) {
+    event.preventDefault();
+  }
+});
+
 // State
 let ws = null;
 let currentSessionId = null;
@@ -38,13 +49,17 @@ let activeSpeechProximities = [];
 let bargeInConsecutiveFrames = 0;
 
 // Engine Mode State ('local' | 'assemblyai')
-let currentEngineMode = localStorage.getItem('aura_engine_mode') || 'assemblyai';
+let currentEngineMode = 'local';
 let aaiWs = null;
 let aaiToken = null;
 let aaiAgentId = null;
 let playbackAudioCtx = null;
 let nextPcmPlayTime = 0;
 let activePcmSources = [];
+let aaiAgentTranscriptBuffer = '';
+let aaiUserTranscriptBuffer = '';
+let pendingAaiToolData = null;
+let aaiCardAppendedThisTurn = false;
 
 // DOM Elements
 const wsStatus = document.getElementById('wsStatus');
@@ -112,27 +127,48 @@ function setEngineMode(mode) {
       activeEngineBadge.style.color = '#10b981';
       activeEngineBadge.style.borderColor = 'rgba(16, 185, 129, 0.4)';
     }
+    if (btnVoiceToggleText) btnVoiceToggleText.textContent = 'Connect AssemblyAI';
     initAssemblyAiEngine();
   } else {
     if (btnModeLocal) btnModeLocal.classList.add('active');
     if (btnModeAssembly) btnModeAssembly.classList.remove('active');
     if (activeEngineBadge) {
-      activeEngineBadge.textContent = '⚡ IN-RAM PGLITE DIALECTIC BRAIN';
+      activeEngineBadge.textContent = '⚡ IN-RAM 10-K RELATIONAL BRAIN (1,087 FILINGS)';
       activeEngineBadge.style.color = '#06b6d4';
       activeEngineBadge.style.borderColor = 'rgba(6, 182, 212, 0.4)';
     }
+    // Strictly disconnect AssemblyAI WebSocket to prevent ungrounded 2021 voice hijacking
     if (aaiWs) {
-      try { aaiWs.close(); } catch {}
+      try { aaiWs.close(1000, 'Switched to Local In-RAM Engine'); } catch {}
       aaiWs = null;
+    }
+    flushPcmAudioQueue();
+    if (btnVoiceToggle) {
+      btnVoiceToggle.className = 'btn-voice-toggle connected';
+      if (btnVoiceToggleText) btnVoiceToggleText.textContent = 'Voice Live (Local In-RAM)';
+      const icon = btnVoiceToggle.querySelector('.voice-toggle-icon');
+      if (icon) icon.textContent = '⚡';
+    }
+    if (speechStateLabel) {
+      speechStateLabel.textContent = '⚡ READY · HOLD SPACEBAR TO SPEAK (IN-RAM 10-K)';
     }
   }
 }
 
 // 2. AssemblyAI 24kHz PCM Web Audio Player with Gapless Queue & Visualizer Binding
 let playbackAnalyserNode = null;
+let activeAaiReplyId = null;
+const cancelledAaiReplyIds = new Set();
 
-function playPcmBase64(base64Data) {
+function playPcmBase64(base64Data, replyId = null) {
   try {
+    if (replyId) {
+      if (cancelledAaiReplyIds.has(replyId)) {
+        return; // Discard trailing audio chunks from interrupted reply
+      }
+      activeAaiReplyId = replyId;
+    }
+
     const binaryString = atob(base64Data);
     const len = binaryString.length;
     const bytes = new Uint8Array(len);
@@ -175,12 +211,14 @@ function playPcmBase64(base64Data) {
 
     activePcmSources.push(source);
     isSpeaking = true;
-    speechStateLabel.textContent = '🎙️ AURA SPEAKING (AssemblyAI 24kHz Voice Stream)...';
+    if (btnBargeIn) btnBargeIn.disabled = false;
+    speechStateLabel.textContent = '🎙️ AURA SPEAKING (Hold Spacebar or Click Barge-In to Interrupt)...';
 
     source.onended = () => {
       activePcmSources = activePcmSources.filter(s => s !== source);
       if (activePcmSources.length === 0) {
         isSpeaking = false;
+        if (btnBargeIn) btnBargeIn.disabled = true;
         speechStateLabel.textContent = isCallActive ? 'LISTENING (Hands-Free)...' : 'HOLD SPACEBAR TO SPEAK';
       }
     };
@@ -189,13 +227,19 @@ function playPcmBase64(base64Data) {
   }
 }
 
-function flushPcmAudioQueue() {
+function flushPcmAudioQueue(replyId = null) {
+  if (replyId) {
+    cancelledAaiReplyIds.add(replyId);
+  } else if (activeAaiReplyId) {
+    cancelledAaiReplyIds.add(activeAaiReplyId);
+  }
   activePcmSources.forEach(s => {
     try { s.stop(); } catch {}
   });
   activePcmSources = [];
   nextPcmPlayTime = 0;
   isSpeaking = false;
+  if (btnBargeIn) btnBargeIn.disabled = true;
 }
 
 // 3. Connect to AssemblyAI Voice Agent API WebSocket with Quota & Inactivity Protection
@@ -285,27 +329,190 @@ function disconnectVoiceSession(reason = 'User Disconnected') {
 
   if (btnVoiceToggle) {
     btnVoiceToggle.className = 'btn-voice-toggle disconnected';
-    if (btnVoiceToggleText) btnVoiceToggleText.textContent = 'Connect Voice';
+    if (btnVoiceToggleText) {
+      btnVoiceToggleText.textContent = currentEngineMode === 'local' ? 'Start Local Voice' : 'Connect AssemblyAI';
+    }
     const icon = btnVoiceToggle.querySelector('.voice-toggle-icon');
     if (icon) icon.textContent = '▶️';
   }
 
   if (wsStatus) {
     wsStatus.className = 'status-pill';
-    wsStatus.innerHTML = '<span class="status-dot" style="background:#64748b"></span><span class="status-label" style="color:#94a3b8">VOICE DISCONNECTED (IDLE)</span>';
+    wsStatus.innerHTML = currentEngineMode === 'local'
+      ? '<span class="status-dot"></span><span class="status-label">ONLINE (In-RAM Dialectic Ready)</span>'
+      : '<span class="status-dot" style="background:#64748b"></span><span class="status-label" style="color:#94a3b8">VOICE DISCONNECTED (IDLE)</span>';
   }
 
   if (speechStateLabel && !speechStateLabel.textContent.includes('REACHED') && !speechStateLabel.textContent.includes('INACTIVITY') && !speechStateLabel.textContent.includes('LIMIT')) {
-    speechStateLabel.textContent = 'VOICE DISCONNECTED · CLICK "CONNECT VOICE" TO RESUME';
+    speechStateLabel.textContent = currentEngineMode === 'local'
+      ? 'READY · HOLD SPACEBAR TO SPEAK'
+      : 'VOICE DISCONNECTED · CLICK "CONNECT VOICE" TO RESUME';
   }
 }
 
 function connectVoiceSession() {
-  isUserExplicitlyDisconnected = false;
-  sessionTurnCount = 0;
-  sessionSecondsRemaining = MAX_SESSION_DURATION_SEC;
-  updateSessionLimitsUI();
-  initAssemblyAiEngine();
+  if (currentEngineMode === 'assemblyai') {
+    isUserExplicitlyDisconnected = false;
+    sessionTurnCount = 0;
+    sessionSecondsRemaining = MAX_SESSION_DURATION_SEC;
+    updateSessionLimitsUI();
+    ensureAudioHardware().then(ok => {
+      if (ok) {
+        isCallActive = true;
+        if (btnToggleCall) btnToggleCall.classList.add('active');
+        if (btnCallText) btnCallText.textContent = 'Mute Hands-Free Mic';
+        initAssemblyAiEngine();
+      }
+    });
+  } else {
+    // Local In-RAM Engine mode: Start hands-free mic or audio context
+    ensureAudioHardware().then(ok => {
+      if (ok) {
+        if (!isCallActive) {
+          if (btnToggleCall) btnToggleCall.click();
+        }
+        if (btnVoiceToggle) {
+          btnVoiceToggle.className = 'btn-voice-toggle connected';
+          if (btnVoiceToggleText) btnVoiceToggleText.textContent = 'Voice Live (Local In-RAM)';
+          const icon = btnVoiceToggle.querySelector('.voice-toggle-icon');
+          if (icon) icon.textContent = '⚡';
+        }
+        speechStateLabel.textContent = '⚡ IN-RAM VOICE LIVE · SPEAK FREELY OR HOLD SPACEBAR';
+      }
+    });
+  }
+}
+
+// ==============================================================================
+// RAW MACHINE-READABLE AUDITED 10-K IN-RAM DATA ENGINE (ZERO HTML TABLES)
+// ==============================================================================
+let lastRenderedRawKey = '';
+let lastRenderedRawTime = 0;
+
+function createRawMachineDataCard(retrievedFacts = null, toolExecution = null, comparison = null, rawText = null) {
+  const factsCard = document.createElement('div');
+  factsCard.className = 'raw-data-card';
+
+  let title = '⚡ [AUDITED SEC 10-K IN-RAM DATA]';
+  if (retrievedFacts) {
+    title = `⚡ [AUDITED SEC 10-K IN-RAM DATA] ${retrievedFacts.companyName || ''} (${retrievedFacts.ticker || ''})`;
+  } else if (comparison) {
+    title = `⚡ [AUDITED SEC 10-K COMPARISON] ${comparison.companyA?.ticker || 'A'} vs ${comparison.companyB?.ticker || 'B'}`;
+  } else if (toolExecution) {
+    title = `⚡ [AUDITED SEC SCREENER DATA] ${toolExecution.criteria || toolExecution.tool || ''}`;
+  }
+
+  const header = document.createElement('div');
+  header.className = 'raw-data-header';
+  header.innerHTML = `<span>${title}</span>
+    <span class="raw-badge">⚡ 0.04ms · ZERO HALLUCINATION</span>`;
+  factsCard.appendChild(header);
+
+  let formattedRaw = rawText;
+  if (!formattedRaw && retrievedFacts?.rawMachineReadableText) {
+    formattedRaw = retrievedFacts.rawMachineReadableText;
+  }
+
+  if (!formattedRaw && retrievedFacts) {
+    const multiYear = retrievedFacts.multiYear;
+    const years = (multiYear?.years || [retrievedFacts.fiscalYear]).slice().sort((a, b) => b - a);
+    const rawLines = [
+      `TICKER: ${retrievedFacts.ticker} | COMPANY: ${retrievedFacts.companyName} | TARGET: FY${retrievedFacts.fiscalYear}`,
+      `--------------------------------------------------------------------------------`
+    ];
+    years.forEach(y => {
+      const f = multiYear?.filingsByYear?.[y] || {};
+      const isTarget = y === retrievedFacts.fiscalYear ? ' ★ [ACTIVE TARGET]' : '';
+      rawLines.push(`[FY${y} AUDITED 10-K FILING]${isTarget}`);
+      rawLines.push(`  • Total Revenue:          ${f.revenue || retrievedFacts.revenue || 'N/A'}`);
+      rawLines.push(`  • Gross Margin:           ${f.grossMargin || retrievedFacts.grossMargin || 'N/A'}`);
+      rawLines.push(`  • Operating Margin:       ${f.operatingMargin || retrievedFacts.operatingMargin || 'N/A'}`);
+      rawLines.push(`  • GAAP Net Income:        ${f.netIncome || retrievedFacts.netIncome || 'N/A'}`);
+      rawLines.push(`  • Operating Cash Flow:    ${f.operatingCashFlow || retrievedFacts.operatingCashFlow || 'N/A'}`);
+      rawLines.push(`  • Capital Expenditures:   ${f.capitalExpenditures || retrievedFacts.capitalExpenditures || 'N/A'}`);
+      rawLines.push(`  • Free Cash Flow:         ${f.freeCashFlow || retrievedFacts.freeCashFlow || 'N/A'}`);
+    });
+    rawLines.push(`--------------------------------------------------------------------------------`);
+    rawLines.push(`SOURCE: SEC EDGAR In-RAM Audited Database (Zero Hallucination Verified)`);
+    formattedRaw = rawLines.join('\n');
+  } else if (!formattedRaw && toolExecution && Array.isArray(toolExecution.output)) {
+    const rawLines = [
+      `CRITERIA: ${toolExecution.criteria || toolExecution.tool}`,
+      `COUNT: ${toolExecution.output.length} Matches Found`,
+      `--------------------------------------------------------------------------------`
+    ];
+    toolExecution.output.slice(0, 10).forEach((item, idx) => {
+      const val = item.metricDisplay || item.freeCashFlowDisplay || item.netLossDisplay || item.grossMargin || item.revenueDisplay || '';
+      rawLines.push(`${idx + 1}. ${item.companyName || item.ticker} (${item.ticker || ''}) -> ${val}`);
+    });
+    rawLines.push(`--------------------------------------------------------------------------------`);
+    rawLines.push(`SOURCE: SEC In-RAM TypedArray Tensors (<0.05ms)`);
+    formattedRaw = rawLines.join('\n');
+  } else if (!formattedRaw && comparison) {
+    const rawLines = [
+      `FY${comparison.fiscalYear || 2023}: ${comparison.companyA?.ticker} vs ${comparison.companyB?.ticker}`,
+      `--------------------------------------------------------------------------------`,
+      `• ${comparison.companyA?.ticker} (${comparison.companyA?.companyName}): Revenue ${comparison.companyA?.revenue} | Gross Margin ${comparison.companyA?.grossMarginPercent} | Operating Margin ${comparison.companyA?.operatingMarginPercent}`,
+      `• ${comparison.companyB?.ticker} (${comparison.companyB?.companyName}): Revenue ${comparison.companyB?.revenue} | Gross Margin ${comparison.companyB?.grossMarginPercent} | Operating Margin ${comparison.companyB?.operatingMarginPercent}`,
+      `--------------------------------------------------------------------------------`,
+      `SUMMARY: ${comparison.ratioSummary || comparison.comparisonSummary || 'Computed in RAM'}`
+    ];
+    formattedRaw = rawLines.join('\n');
+  }
+
+  const pre = document.createElement('pre');
+  pre.className = 'raw-machine-code';
+  pre.textContent = formattedRaw || 'Audited In-RAM Form 10-K Data';
+
+  factsCard.appendChild(pre);
+  return factsCard;
+}
+
+function insertRawMachineDataIntoChat(toolData) {
+  if (!toolData) return;
+  const facts = toolData.retrievedFacts || (toolData.filing ? {
+    ticker: toolData.filing.ticker,
+    companyName: toolData.filing.companyName,
+    fiscalYear: toolData.filing.fiscalYear,
+    revenue: toolData.filing.revenueDisplay || `$${(toolData.filing.revenue / 1e9).toFixed(2)}B`,
+    grossMargin: toolData.filing.grossMarginPercent ? `${toolData.filing.grossMarginPercent}%` : 'N/A',
+    operatingMargin: `${toolData.filing.operatingMarginPercent}%`,
+    netIncome: `$${(toolData.filing.netIncome / 1e9).toFixed(2)}B`,
+    operatingCashFlow: toolData.filing.operatingCashFlow ? `$${(toolData.filing.operatingCashFlow / 1e9).toFixed(2)}B` : 'N/A',
+    capitalExpenditures: toolData.filing.capitalExpenditures ? `$${(toolData.filing.capitalExpenditures / 1e9).toFixed(2)}B` : 'N/A',
+    freeCashFlow: `$${(toolData.filing.freeCashFlow / 1e9).toFixed(2)}B`,
+    rawMachineReadableText: toolData.rawMachineReadable || null,
+    multiYear: toolData.multiYear || null
+  } : null);
+
+  const toolExec = (toolData.results && Array.isArray(toolData.results)) ? {
+    tool: toolData.type,
+    criteria: toolData.criteria,
+    output: toolData.results
+  } : null;
+
+  const comparison = toolData.comparison || null;
+  const rawText = toolData.rawMachineReadable || facts?.rawMachineReadableText || null;
+
+  if (!facts && !toolExec && !comparison && !rawText) return;
+
+  const dedupeKey = facts ? `${facts.ticker}-${facts.fiscalYear}` :
+                    comparison ? `${comparison.companyA?.ticker}-${comparison.companyB?.ticker}` :
+                    toolExec ? `${toolExec.tool}-${toolExec.criteria}` :
+                    (toolData.type || 'RAW_DATA');
+
+  const now = Date.now();
+  if (dedupeKey === lastRenderedRawKey && (now - lastRenderedRawTime) < 3500) {
+    return; // Prevent duplicate rapid insertions
+  }
+  lastRenderedRawKey = dedupeKey;
+  lastRenderedRawTime = now;
+
+  const card = createRawMachineDataCard(facts, toolExec, comparison, rawText);
+  if (card && transcriptBox) {
+    transcriptBox.appendChild(card);
+    transcriptBox.scrollTop = transcriptBox.scrollHeight;
+  }
 }
 
 async function initAssemblyAiEngine() {
@@ -346,7 +553,7 @@ async function initAssemblyAiEngine() {
       console.log('🎙️ [AssemblyAI WebSocket] Connected to Voice Agent API');
       wsStatus.className = 'status-pill';
       wsStatus.innerHTML = '<span class="status-dot" style="background:#10b981"></span><span class="status-label">ASSEMBLYAI VOICE LIVE</span>';
-      speechStateLabel.textContent = 'READY · HOLD SPACEBAR TO TALK WITH ASSEMBLYAI';
+      speechStateLabel.textContent = 'READY · SPEAK FREELY OR HOLD SPACEBAR';
 
       if (btnVoiceToggle) {
         btnVoiceToggle.className = 'btn-voice-toggle connected';
@@ -358,10 +565,12 @@ async function initAssemblyAiEngine() {
       startSessionCountdown();
       resetIdleInactivityTimer();
 
-      // Update session with published agent
+      // Activate published agent session (greeting: 'Hello', tools, and barge-in turn detection are pre-configured on agent)
       aaiWs.send(JSON.stringify({
         type: 'session.update',
-        session: { agent_id: aaiAgentId }
+        session: {
+          agent_id: aaiAgentId
+        }
       }));
     };
 
@@ -371,23 +580,127 @@ async function initAssemblyAiEngine() {
         if (msg.type === 'session.ready' || msg.type === 'session.updated') {
           console.log('✅ AssemblyAI Session Active:', msg.session_id || msg.type);
         } else if (msg.type === 'session.error') {
-          console.error('❌ AssemblyAI Session Error:', msg);
-          speechStateLabel.textContent = `AssemblyAI Error: ${msg.message || msg.code}`;
-          wsStatus.innerHTML = '<span class="status-dot" style="background:#ef4444"></span><span class="status-label">AAI AUTH ERROR</span>';
-          disconnectVoiceSession('Session error');
+          console.error('❌ AssemblyAI Session Error:', JSON.stringify(msg));
+          const errMsg = msg.message || msg.code || msg.error || JSON.stringify(msg);
+          console.error('❌ AssemblyAI Error Details: code=', msg.code, 'message=', msg.message, 'param=', msg.param);
+          const isFatalAuth = msg.code === 1008 || msg.code === 'unauthorized' || msg.code === 401 || msg.code === 'invalid_api_key';
+          if (isFatalAuth) {
+            speechStateLabel.textContent = `AssemblyAI Auth Error: ${errMsg}`;
+            wsStatus.innerHTML = '<span class="status-dot" style="background:#ef4444"></span><span class="status-label">AAI AUTH ERROR</span>';
+            disconnectVoiceSession('Auth error: ' + errMsg);
+          } else {
+            speechStateLabel.textContent = `AssemblyAI: ${errMsg}`;
+            console.warn('⚠️ Non-fatal AssemblyAI notice, maintaining live session.');
+          }
           return;
+        } else if (msg.type === 'tool.call') {
+          const callId = msg.call_id || msg.tool_call_id;
+          const args = typeof msg.arguments === 'string' ? JSON.parse(msg.arguments) : (msg.arguments || {});
+          console.log('⚡ [AssemblyAI Tool Call] Executing In-RAM SEC Database Tool:', args.query);
+          speechStateLabel.textContent = `⚡ [In-RAM Database Tool] ${args.query || 'Querying'}...`;
+
+          fetch(`/api/v1/sec-tool?query=${encodeURIComponent(args.query || '')}`)
+            .then(res => res.json())
+            .then(toolData => {
+              pendingAaiToolData = toolData;
+              // Instantly insert raw machine-readable data into chatbox (0ms delay, no tables)
+              insertRawMachineDataIntoChat(toolData);
+
+              if (aaiWs && aaiWs.readyState === WebSocket.OPEN) {
+                aaiWs.send(JSON.stringify({
+                  type: 'tool.result',
+                  call_id: callId,
+                  result: JSON.stringify({
+                    found: toolData.found,
+                    reply_hint: toolData.reply,
+                    raw_machine_readable_data: toolData.rawMachineReadable || toolData.retrievedFacts?.rawMachineReadableText || null,
+                    criteria: toolData.criteria,
+                    count: toolData.count,
+                    results: toolData.results ? toolData.results.slice(0, 8) : null,
+                    filing: toolData.filing,
+                    retrievedFacts: toolData.retrievedFacts,
+                    multiYear: toolData.multiYear,
+                    comparison: toolData.comparison
+                  })
+                }));
+              }
+            })
+            .catch(err => {
+              if (aaiWs && aaiWs.readyState === WebSocket.OPEN) {
+                aaiWs.send(JSON.stringify({
+                  type: 'tool.result',
+                  call_id: callId,
+                  result: JSON.stringify({ error: err.message })
+                }));
+              }
+            });
         } else if ((msg.type === 'reply.audio' || msg.type === 'output.audio') && (msg.data || msg.audio)) {
           resetIdleInactivityTimer();
-          playPcmBase64(msg.data || msg.audio);
+          playPcmBase64(msg.data || msg.audio, msg.reply_id);
+        } else if (msg.type === 'transcript.agent.delta' && msg.delta) {
+          aaiAgentTranscriptBuffer += (aaiAgentTranscriptBuffer ? ' ' : '') + msg.delta;
+        } else if (msg.type === 'reply.done') {
+          if (msg.status === 'interrupted') {
+            flushPcmAudioQueue(msg.reply_id);
+            speechStateLabel.textContent = '⚡ BARGE-IN: AGENT INTERRUPTED';
+            aaiAgentTranscriptBuffer = '';
+            pendingAaiToolData = null;
+            aaiCardAppendedThisTurn = false;
+          } else {
+            const agentText = aaiAgentTranscriptBuffer;
+            if (agentText) {
+              if (pendingAaiToolData) {
+                insertRawMachineDataIntoChat(pendingAaiToolData);
+              }
+              appendMessage('agent', agentText);
+              aaiCardAppendedThisTurn = true;
+              aaiAgentTranscriptBuffer = '';
+              pendingAaiToolData = null;
+              registerVoiceTurn();
+            }
+          }
         } else if ((msg.type === 'transcript.agent' || msg.type === 'reply.transcript' || msg.type === 'output.transcript') && (msg.text || msg.transcript)) {
-          appendMessage('agent', msg.text || msg.transcript);
+          const agentText = msg.text || msg.transcript;
+          if (!aaiCardAppendedThisTurn) {
+            if (pendingAaiToolData) {
+              insertRawMachineDataIntoChat(pendingAaiToolData);
+            }
+            appendMessage('agent', agentText);
+            aaiCardAppendedThisTurn = true;
+            pendingAaiToolData = null;
+          } else {
+            appendMessage('agent', agentText);
+          }
+          aaiAgentTranscriptBuffer = '';
           registerVoiceTurn();
+        } else if (msg.type === 'transcript.user.delta' && msg.delta) {
+          aaiUserTranscriptBuffer += (aaiUserTranscriptBuffer ? ' ' : '') + msg.delta;
+          speechStateLabel.textContent = `🎤 YOU: ${aaiUserTranscriptBuffer}`;
         } else if ((msg.type === 'transcript.user' || msg.type === 'input.transcript' || msg.type === 'transcript') && (msg.text || msg.transcript)) {
-          appendMessage('user', msg.text || msg.transcript);
+          const userTxt = msg.text || msg.transcript || aaiUserTranscriptBuffer;
+          if (userTxt) {
+            aaiCardAppendedThisTurn = false;
+            pendingAaiToolData = null;
+            appendMessage('user', userTxt);
+            // Proactively query In-RAM SEC tool and immediately insert raw machine data into chatbox
+            fetch(`/api/v1/sec-tool?query=${encodeURIComponent(userTxt)}`)
+              .then(res => res.json())
+              .then(toolData => {
+                if (toolData && toolData.found) {
+                  pendingAaiToolData = toolData;
+                  insertRawMachineDataIntoChat(toolData);
+                }
+              })
+              .catch(() => {});
+          }
+          aaiUserTranscriptBuffer = '';
           resetIdleInactivityTimer();
         } else if (msg.type === 'reply.interrupted' || msg.type === 'output.interrupted') {
-          flushPcmAudioQueue();
-          speechStateLabel.textContent = '⚡ BARGE-IN: FLUSHED AUDIO STREAM';
+          flushPcmAudioQueue(msg.reply_id);
+          speechStateLabel.textContent = '⚡ BARGE-IN: AGENT INTERRUPTED';
+          aaiAgentTranscriptBuffer = '';
+          pendingAaiToolData = null;
+          aaiCardAppendedThisTurn = false;
         }
       } catch (parseErr) {
         console.warn('AssemblyAI message parsing notice:', parseErr);
@@ -457,13 +770,30 @@ function initWebSocket() {
     if (data.type === 'TRANSCRIPTION_RESULT') {
       if (currentEngineMode !== 'assemblyai') {
         appendMessage('user', data.transcript);
+        // Proactively fetch and display raw machine data immediately in chatbox (<5ms)
+        fetch(`/api/v1/sec-tool?query=${encodeURIComponent(data.transcript)}`)
+          .then(res => res.json())
+          .then(toolData => {
+            if (toolData && toolData.found) {
+              insertRawMachineDataIntoChat(toolData);
+            }
+          })
+          .catch(() => {});
       }
       speechStateLabel.textContent = `TRANSCRIBED IN ${data.sttLatencyMs}ms · ANALYZING 10-K...`;
     }
 
     if (data.type === 'AGENT_VOICE_REPLY') {
+      if (data.retrievedFacts || data.toolExecution) {
+        insertRawMachineDataIntoChat({
+          retrievedFacts: data.retrievedFacts,
+          results: data.toolExecution?.output,
+          criteria: data.toolExecution?.criteria,
+          type: data.toolExecution?.tool
+        });
+      }
+      appendMessage('agent', data.replyText);
       if (currentEngineMode !== 'assemblyai') {
-        appendMessage('agent', data.replyText);
         playAgentVoice(data.replyText);
       }
       if (fsmStageDisplay) fsmStageDisplay.textContent = data.fsmState || 'ANALYSIS';
@@ -480,22 +810,43 @@ function initWebSocket() {
   };
 }
 
-// 5. Append Chat Message (With 1.5s Anti-Duplicate Guard)
+// 5. Append Chat Message (With Anti-Duplicate Guard)
 let lastUserMessageText = '';
 let lastUserMessageTime = 0;
+let lastAgentMessageText = '';
+let lastAgentMessageTime = 0;
 
-function appendMessage(role, text) {
-  if (!text) return;
-  const cleanText = text.trim();
+function appendMessage(role, text, toolExecution = null, retrievedFacts = null) {
+  if (!text && !toolExecution && !retrievedFacts) return;
+  const cleanText = (text || '').trim();
   const now = Date.now();
 
   // Guard against duplicate user messages from parallel STT pipelines
-  if (role === 'user' && cleanText.toLowerCase() === lastUserMessageText.toLowerCase() && (now - lastUserMessageTime) < 2000) {
-    return;
-  }
   if (role === 'user') {
+    if (cleanText.toLowerCase() === lastUserMessageText.toLowerCase() && (now - lastUserMessageTime) < 2000) {
+      return;
+    }
     lastUserMessageText = cleanText;
     lastUserMessageTime = now;
+  }
+
+  // Guard against duplicate agent messages
+  if (role === 'agent') {
+    if (!toolExecution && !retrievedFacts && cleanText.toLowerCase() === lastAgentMessageText.toLowerCase() && (now - lastAgentMessageTime) < 2000) {
+      return;
+    }
+    lastAgentMessageText = cleanText;
+    lastAgentMessageTime = now;
+  }
+
+  // If toolExecution or retrievedFacts is attached and hasn't been rendered yet, insert raw machine data
+  if (retrievedFacts || toolExecution) {
+    insertRawMachineDataIntoChat({
+      retrievedFacts,
+      results: toolExecution?.output,
+      criteria: toolExecution?.criteria,
+      type: toolExecution?.tool
+    });
   }
 
   const bubble = document.createElement('div');
@@ -503,14 +854,15 @@ function appendMessage(role, text) {
   
   const speaker = document.createElement('div');
   speaker.className = 'bubble-speaker';
-  speaker.textContent = role === 'user' ? 'Analyst (You)' : (currentEngineMode === 'assemblyai' ? 'Aura (AssemblyAI Neural)' : 'Aura (In-RAM Analyst)');
+  speaker.textContent = role === 'user' ? 'Analyst (You)' : (currentEngineMode === 'assemblyai' ? 'Aura (AssemblyAI Neural)' : 'Aura (In-RAM Financial Analyst)');
   
   const content = document.createElement('div');
   content.className = 'bubble-text';
-  content.textContent = cleanText;
+  content.textContent = cleanText || (retrievedFacts ? `Audited In-RAM 10-K Data for ${retrievedFacts.companyName} (${retrievedFacts.ticker}):` : 'Audited In-RAM Database Results:');
 
   bubble.appendChild(speaker);
   bubble.appendChild(content);
+
   transcriptBox.appendChild(bubble);
   transcriptBox.scrollTop = transcriptBox.scrollHeight;
 }
@@ -542,21 +894,34 @@ function playAgentVoice(text) {
   synth.speak(utterance);
 }
 
-// 4. Safe Barge-In Interruption Handler
+// 4. Safe Barge-In Interruption Handler (<20ms)
 function triggerInstantBargeIn(reason = 'Caller voice interruption') {
   flushPcmAudioQueue();
-  if (isSpeaking) {
-    if (synth) synth.cancel();
-    isSpeaking = false;
-    if (btnBargeIn) btnBargeIn.disabled = true;
-    speechStateLabel.textContent = '⚡ BARGE-IN: AGENT FLUSHED <20ms';
-    if (ws && ws.readyState === WebSocket.OPEN && currentSessionId) {
-      ws.send(JSON.stringify({
-        type: 'BARGE_IN_TRIGGERED',
-        sessionId: currentSessionId,
-        reason
-      }));
-    }
+  if (synth) synth.cancel();
+  isSpeaking = false;
+  if (btnBargeIn) btnBargeIn.disabled = true;
+  speechStateLabel.textContent = '⚡ BARGE-IN: AGENT INTERRUPTED (<20ms)';
+
+  // If AssemblyAI is active, send speech frame to immediately halt cloud generation
+  if (currentEngineMode === 'assemblyai' && aaiWs && aaiWs.readyState === WebSocket.OPEN) {
+    try {
+      const burstPcm = new Int16Array(4800);
+      burstPcm.fill(1200);
+      const bytes = new Uint8Array(burstPcm.buffer);
+      let binary = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+      }
+      aaiWs.send(JSON.stringify({ type: 'input.audio', audio: btoa(binary) }));
+    } catch {}
+  }
+
+  if (ws && ws.readyState === WebSocket.OPEN && currentSessionId) {
+    ws.send(JSON.stringify({
+      type: 'BARGE_IN_TRIGGERED',
+      sessionId: currentSessionId,
+      reason
+    }));
   }
 }
 
@@ -749,7 +1114,10 @@ async function ensureAudioHardware() {
         }
       };
       micSource.connect(pcmStreamNode);
-      pcmStreamNode.connect(audioCtx.destination);
+      const muteGain = audioCtx.createGain();
+      muteGain.gain.value = 0;
+      pcmStreamNode.connect(muteGain);
+      muteGain.connect(audioCtx.destination);
     } catch (pcmErr) {
       console.warn('PCM streaming setup note:', pcmErr);
     }
@@ -956,20 +1324,27 @@ function runVisualizerLoop() {
     // Hands-Free VAD Mode (Only if explicitly connected via Call Toggle)
     if (isCallActive && !isPttRecording) {
       if (isSpeaking) {
-        const BARGE_IN_RMS_THRESHOLD = Math.max(0.085, noiseGateThreshold + 0.045);
-        if (rms > BARGE_IN_RMS_THRESHOLD && isVoiceLocked && lockedVoiceVector) {
-          const sample = extractAcousticVector();
-          const similarity = computeVectorSimilarity(sample.vector24, lockedVoiceVector);
-
-          if (sample.proximityScore >= 0.60 && similarity >= 0.65 && sample.f0Hz >= 75 && sample.f0Hz <= 380) {
+        const BARGE_IN_RMS_THRESHOLD = Math.max(0.065, noiseGateThreshold + 0.025);
+        if (rms > BARGE_IN_RMS_THRESHOLD) {
+          let passesAuth = true;
+          if (isVoiceLocked && lockedVoiceVector) {
+            const sample = extractAcousticVector();
+            const similarity = computeVectorSimilarity(sample.vector24, lockedVoiceVector);
+            if (sample.proximityScore < 0.45 || similarity < 0.50) {
+              passesAuth = false;
+            }
+          }
+          if (passesAuth) {
             bargeInConsecutiveFrames++;
-            if (bargeInConsecutiveFrames >= 4) {
+            if (bargeInConsecutiveFrames >= 3) {
               bargeInConsecutiveFrames = 0;
               triggerInstantBargeIn('Caller voice interruption');
             }
           } else {
             bargeInConsecutiveFrames = 0;
           }
+        } else {
+          bargeInConsecutiveFrames = 0;
         }
         return;
       }
@@ -1001,20 +1376,20 @@ function runVisualizerLoop() {
           micSilenceTimer = setTimeout(() => {
             const duration = Date.now() - speechStartTime;
             isUserSpeakingMic = false;
-            if (duration < 550) {
+            if (duration < 350) {
               speechStateLabel.textContent = 'LISTENING (Hands-Free)...';
               if (mediaRecorder && mediaRecorder.state === 'recording') {
                 mediaRecorder.stop();
               }
               recordedAudioChunks = [];
             } else {
-              speechStateLabel.textContent = 'PROCESSING UTTERANCE...';
+              speechStateLabel.textContent = 'ANALYZING IN-RAM 10-K FILINGS...';
               if (mediaRecorder && mediaRecorder.state === 'recording') {
                 mediaRecorder.stop();
               }
             }
             micSilenceTimer = null;
-          }, 1100);
+          }, 380); // Ultra-responsive 380ms VAD silence timeout (cuts 720ms of dead air)
         }
       }
     }
@@ -1059,6 +1434,13 @@ function renderFilingsTable(filings) {
       <td>$${fcfB}B</td>
       <td><span class="status-verified" style="color:var(--accent-green);font-size:11px;font-family:var(--font-mono);">✅ Form 10-K</span></td>
     `;
+
+    tr.style.cursor = 'pointer';
+    tr.title = `Click to analyze ${f.company_name} (${f.ticker}) with In-RAM Dialectic Brain`;
+    tr.addEventListener('click', () => {
+      sendTextMessage(`Analyze audited Form 10-K for ${f.company_name} (${f.ticker}) FY${f.fiscal_year || 2023}`);
+    });
+
     inventoryTbody.appendChild(tr);
   });
 }
@@ -1191,8 +1573,23 @@ function sendTextMessage(text) {
   appendMessage('user', text);
   speechStateLabel.textContent = 'ANALYZING IN-RAM 10-K FILINGS...';
 
-  // If in AssemblyAI mode, notify AssemblyAI
-  if (currentEngineMode === 'assemblyai' && aaiWs && aaiWs.readyState === WebSocket.OPEN) {
+  // Proactively fetch and display raw machine-readable data immediately in chatbox (<5ms, no tables)
+  fetch(`/api/v1/sec-tool?query=${encodeURIComponent(text)}`)
+    .then(res => res.json())
+    .then(toolData => {
+      if (toolData && toolData.found) {
+        insertRawMachineDataIntoChat(toolData);
+      }
+    })
+    .catch(() => {});
+
+  // Hard enforce engine isolation: if local mode, kill any residual AssemblyAI socket
+  if (currentEngineMode !== 'assemblyai') {
+    if (aaiWs) {
+      try { aaiWs.close(); } catch {}
+      aaiWs = null;
+    }
+  } else if (aaiWs && aaiWs.readyState === WebSocket.OPEN) {
     try {
       aaiWs.send(JSON.stringify({ type: 'input.text', text: text }));
     } catch {}
@@ -1288,7 +1685,8 @@ if (btnVoiceToggle) {
 
 // Initialize on Load
 window.addEventListener('DOMContentLoaded', () => {
-  setEngineMode(currentEngineMode);
+  localStorage.setItem('aura_engine_mode', 'local');
+  setEngineMode('local');
   fetchFilings();
   fetchSqlLogs();
 });

@@ -8,6 +8,18 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
+  <script>
+    // Suppress benign third-party browser extension channel closure rejections
+    window.addEventListener('unhandledrejection', function(event) {
+      if (event && event.reason && event.reason.message && (
+        event.reason.message.includes('A listener indicated an asynchronous response') ||
+        event.reason.message.includes('message channel closed') ||
+        event.reason.message.includes('Extension context invalidated')
+      )) {
+        event.preventDefault();
+      }
+    });
+  </script>
 </head>
 <body class="theme-dark">
   <div class="app-container">
@@ -31,10 +43,10 @@
       <div class="header-center">
         <div class="engine-switch-box">
           <span class="engine-switch-label">ENGINE:</span>
-          <button class="btn-engine-toggle" id="btnModeLocal" title="Local WebAssembly RAM + Ultra-Low Latency Dialectic Brain">
+          <button class="btn-engine-toggle active" id="btnModeLocal" title="Local WebAssembly RAM + Ultra-Low Latency Dialectic Brain">
             ⚡ In-RAM Dialectic
           </button>
-          <button class="btn-engine-toggle active" id="btnModeAssembly" title="AssemblyAI Voice Agent API 24kHz Neural Cloud Stream">
+          <button class="btn-engine-toggle" id="btnModeAssembly" title="AssemblyAI Voice Agent API 24kHz Neural Cloud Stream">
             🎙️ AssemblyAI Cloud Voice
           </button>
         </div>
@@ -45,7 +57,7 @@
           📝 <span>Financial Audit</span>
         </button>
         <div class="engine-badge" id="activeEngineBadge">
-          ⚡ ASSEMBLYAI UNIVERSAL-3.5 + IN-RAM PGLITE
+          ⚡ IN-RAM 10-K RELATIONAL BRAIN (1,087 FILINGS)
         </div>
       </div>
     </header>
@@ -155,6 +167,18 @@
             <span class="count-tag">10-K XBRL</span>
           </div>
           <div class="scenarios-grid" id="scenariosGrid">
+            <button class="scenario-btn" data-query="Which companies in the S&P 500 had Free Cash Flow greater than 40 billion in 2023?">
+              <span class="s-tag" style="color:#10b981">CASH KINGS</span>
+              <span class="s-text">FCF &gt; $40B S&amp;P 500 Screener</span>
+            </button>
+            <button class="scenario-btn" data-query="Which S&P 500 company had a net loss over 5 billion and free cash flow over 5 billion?">
+              <span class="s-tag" style="color:#f59e0b">DIVERGENCE</span>
+              <span class="s-text">Loss &gt; $5B + FCF &gt; $5B (3M Test)</span>
+            </button>
+            <button class="scenario-btn" data-query="What was Apple's YoY revenue growth from 2022 to 2023?">
+              <span class="s-tag" style="color:#06b6d4">MULTI-YEAR</span>
+              <span class="s-text">Apple YoY Growth (2022 vs 2023)</span>
+            </button>
             <button class="scenario-btn" data-query="Compare Nvidia's Gross Margin in 2023 vs Apple's 2023 Gross Margin">
               <span class="s-tag">SEMIS VS HARDWARE</span>
               <span class="s-text">NVDA vs AAPL FY2023 Gross Margin</span>
@@ -163,21 +187,9 @@
               <span class="s-tag">SEGMENT GROWTH</span>
               <span class="s-text">Tesla Megapack & Energy Revenue</span>
             </button>
-            <button class="scenario-btn" data-query="How much did Microsoft generate in Free Cash Flow in FY2024?">
-              <span class="s-tag">CASH FLOW</span>
-              <span class="s-text">Microsoft FY2024 Free Cash Flow</span>
-            </button>
-            <button class="scenario-btn" data-query="What was Meta's operating margin in their Year of Efficiency?">
-              <span class="s-tag">PROFITABILITY</span>
-              <span class="s-text">Meta FY2023 Year of Efficiency</span>
-            </button>
             <button class="scenario-btn" data-query="What was JPMorgan's Gross Margin under GAAP in 2023?">
               <span class="s-tag" style="color:#f59e0b">BANK GAAP TRAP</span>
               <span class="s-text">JPMorgan Gross Margin (GAAP Test)</span>
-            </button>
-            <button class="scenario-btn" data-query="Which company had the highest profit and net income in the S&P 500?">
-              <span class="s-tag" style="color:#10b981">S&P 500 SCREENER</span>
-              <span class="s-text">Top Net Income in S&P 500</span>
             </button>
           </div>
         </div>

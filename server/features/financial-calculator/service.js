@@ -81,7 +81,7 @@ export class FinancialCalculatorService {
     };
   }
 
-  calculateYoYGrowth(ticker) {
+  calculateYoYGrowth(ticker, targetYear = null) {
     const filings = this.getFilings()
       .filter(f => f.ticker === ticker.toUpperCase().trim())
       .sort((a, b) => a.fiscalYear - b.fiscalYear);
@@ -90,11 +90,29 @@ export class FinancialCalculatorService {
       return { error: `Insufficient historical filings for ${ticker}` };
     }
 
-    const previous = filings[filings.length - 2];
-    const current = filings[filings.length - 1];
+    let current, previous;
+    if (targetYear) {
+      const ty = parseInt(targetYear, 10);
+      const currIdx = filings.findIndex(f => f.fiscalYear === ty);
+      if (currIdx > 0) {
+        current = filings[currIdx];
+        previous = filings[currIdx - 1];
+      } else {
+        current = filings[filings.length - 1];
+        previous = filings[filings.length - 2];
+      }
+    } else {
+      previous = filings[filings.length - 2];
+      current = filings[filings.length - 1];
+    }
 
-    const revGrowth = Number((((current.revenue - previous.revenue) / previous.revenue) * 100).toFixed(1));
-    const netIncomeGrowth = Number((((current.netIncome - previous.netIncome) / Math.abs(previous.netIncome)) * 100).toFixed(1));
+    const revGrowth = previous.revenue > 0
+      ? Number((((current.revenue - previous.revenue) / previous.revenue) * 100).toFixed(1))
+      : 0.0;
+    const prevNiAbs = Math.abs(previous.netIncome);
+    const netIncomeGrowth = prevNiAbs > 0
+      ? Number((((current.netIncome - previous.netIncome) / prevNiAbs) * 100).toFixed(1))
+      : 0.0;
 
     return {
       ticker: current.ticker,

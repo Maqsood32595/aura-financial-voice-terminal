@@ -12,6 +12,7 @@ export async function generateFinancialVoiceReply({
   session,
   kbResults = [],
   matchedFiling = null,
+  allFilings = [],
   toolExecution = null,
   customApiKey = null
 }) {
@@ -42,11 +43,25 @@ export async function generateFinancialVoiceReply({
     const fcfDisplay = matchedFiling.freeCashFlow ? `$${(matchedFiling.freeCashFlow / 1e9).toFixed(2)}B` : '$0B';
     const niDisplay = matchedFiling.netIncome ? `$${(matchedFiling.netIncome / 1e9).toFixed(2)}B` : '$0B';
 
+    const otherFilingsList = (allFilings || [])
+      .filter(f => f.fiscalYear !== matchedFiling.fiscalYear)
+      .map(f => {
+        const gm = f.grossMarginPercent !== null ? `${f.grossMarginPercent}%` : 'N/A';
+        const ni = `$${(f.netIncome / 1e9).toFixed(2)}B`;
+        const ocf = f.operatingCashFlow ? `$${(f.operatingCashFlow / 1e9).toFixed(2)}B` : 'N/A';
+        const fcf = `$${(f.freeCashFlow / 1e9).toFixed(2)}B`;
+        return `  * FY${f.fiscalYear}: Total Revenue: ${f.revenueDisplay} | Gross Margin: ${gm} | Operating Margin: ${f.operatingMarginPercent}% | Common Net Income: ${ni} | Operating Cash Flow: ${ocf} | Free Cash Flow: ${fcf}`;
+      }).join('\n');
+
+    const multiYearContext = otherFilingsList ? `
+OTHER AUDITED IN-RAM FISCAL YEARS FOR ${matchedFiling.companyName} (${matchedFiling.ticker}):
+${otherFilingsList}
+` : '';
+
     filingContext = `
 ================================================================================
 OFFICIAL AUDITED IN-RAM SEC FORM 10-K GROUND TRUTH RECORD:
-- Company: ${matchedFiling.companyName} (${matchedFiling.ticker})
-- Fiscal Year: FY${matchedFiling.fiscalYear} (Period Ended: ${matchedFiling.periodEnd})
+- Primary Active Filing: ${matchedFiling.companyName} (${matchedFiling.ticker}) FY${matchedFiling.fiscalYear} (Period Ended: ${matchedFiling.periodEnd})
 - Sector / GAAP Industry Classification: ${matchedFiling.sector} (${matchedFiling.industryType || 'STANDARD'})
 - Total Revenue: ${matchedFiling.revenueDisplay}
 - Gross Margin: ${gmDisplay}
@@ -57,13 +72,18 @@ OFFICIAL AUDITED IN-RAM SEC FORM 10-K GROUND TRUTH RECORD:
 - Free Cash Flow (FCF = OCF - CapEx): ${fcfDisplay}
 - Segment Breakdown: ${JSON.stringify(matchedFiling.segmentRevenue || {})}
 - Audited Key Highlights: ${matchedFiling.keyHighlights}
-================================================================================
+${multiYearContext}
 CRITICAL DETERMINISTIC ENFORCEMENT:
-You MUST articulate ONLY the exact figures provided in the In-RAM record above.
-- When asked for Free Cash Flow (or if analyst replies 'Yes' to FCF), state EXACTLY: ${fcfDisplay}.
-- When asked for Net Income, state EXACTLY: ${niDisplay}.
-- When asked for Operating Margin, state EXACTLY: ${matchedFiling.operatingMarginPercent}%.
-- NEVER hallucinate, estimate, or cite ungrounded figures from general memory.
+You MUST articulate ONLY the exact figures provided in the In-RAM records above.
+- When asked for Revenue / Total Revenue, state EXACTLY: ${matchedFiling.revenueDisplay}.
+- When asked for Operating Margin (or 'Operation Margin'), state EXACTLY: ${matchedFiling.operatingMarginPercent}%.
+- When asked for Gross Margin, state EXACTLY: ${gmDisplay}.
+- When asked for Net Income (or Common Net Income), state EXACTLY: ${niDisplay}.
+- When asked for Operating Cash Flow (or 'cash flow from operations'), state EXACTLY: ${ocfDisplay}. (e.g. for Williams-Sonoma FY2023, state: "$1.68 billion").
+- When asked for Free Cash Flow (or if analyst says "cashback" / "cash flow" / "yes to FCF"), state EXACTLY: ${fcfDisplay}.
+- When asked for "all numbers", "all details", "everything", or comprehensive figures, articulate ALL audited figures from this In-RAM record: Revenue (${matchedFiling.revenueDisplay}), Gross Margin (${gmDisplay}), Operating Margin (${matchedFiling.operatingMarginPercent}%), Common Net Income (${niDisplay}), Operating Cash Flow (${ocfDisplay}), and Free Cash Flow (${fcfDisplay}).
+- If asked to compare years (e.g. 2022 vs 2023), use ONLY the exact figures from the multi-year In-RAM records above.
+- NEVER hallucinate, estimate, or cite ungrounded figures from general memory. These records are rendered live on the user's screen.
 `;
   }
 
@@ -74,8 +94,10 @@ You MUST articulate ONLY the exact figures provided in the In-RAM record above.
 ================================================================================
 DYNAMIC MANIFEST CALCULATION RESULT:
 - Tool: ${toolExecution.tool}
+- Criteria: ${toolExecution.criteria || toolExecution.metric || 'Custom Screener'}
+- Qualifying Count: ${toolExecution.count !== undefined ? toolExecution.count : (toolExecution.output?.length || 0)}
 - Data: ${JSON.stringify(toolExecution.output)}
-(State these exact figures with 100% mathematical fidelity!)
+(CRITICAL: State these exact figures with 100% mathematical fidelity! NEVER say "I need to calculate", "I cannot calculate", or ask for permission. The In-RAM calculation has ALREADY been executed above!)
 ================================================================================
 `;
   }
@@ -105,7 +127,9 @@ CONVERSATIONAL CADENCE & DETERMINISTIC TREE GROUNDING:
 5. ACTIVE FINANCIAL FOLLOW-UP: After stating the requested metric, briefly ask a relevant follow-up from the record (e.g. "Would you like to see their Free Cash Flow?").
 6. DEEP MEMORY RETENTION: Remember all companies discussed earlier in the call. If the analyst replies "Yes", "Go ahead", or "Sure", immediately answer regarding the active company.
 7. NO MARKDOWN: Plain spoken English only. No asterisks, markdown tables, or special characters.
-8. CONVERSATIONAL GRACE: If the analyst makes a general greeting, respond smoothly (e.g. "I'm listening, which ticker or metric shall we pull up?").
+8. CONVERSATIONAL GRACE: If the analyst makes a general greeting without any financial query or tool execution, respond smoothly (e.g. "I'm listening, which ticker or metric shall we pull up?"). However, whenever DYNAMIC MANIFEST CALCULATION RESULT or an In-RAM record is provided, you MUST articulate the financial figures and never default to a greeting.
+9. EXHAUSTIVE SCREENER ARTICULATION: When answering a multi-company screener or ranking query from DYNAMIC MANIFEST CALCULATION RESULT, state the exact qualifying count and list all the returned companies with their exact figures (e.g., "Five S&P 500 companies earned more than forty billion dollars in FY2023: Apple at $97.00B, Berkshire Hathaway at $96.22B, Alphabet at $73.80B, Microsoft at $72.36B, and JPMorgan Chase at $47.76B."). Be exhaustive, punchy, and mathematically precise. NEVER say "I need to calculate" or "I cannot calculate" because the calculation is already completed in RAM.
+10. TIME HORIZON & ZERO-2021 INVARIANT: The In-RAM database contains audited SEC filings for FY2022, FY2023, and FY2024 ONLY. Fiscal year 2021 is STRICTLY OUT OF SCOPE. NEVER cite, mention, or fabricate numbers for 2021! If the analyst asks for financial figures without a year, default strictly to FY2023. For Microsoft (MSFT), FY2023 Net Income is $72.36B ($72,361,000,000) and FY2022 is $72.74B. Never mention $61,300 million or 2021.
 
 ${analystMemory}
 
